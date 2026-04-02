@@ -1,8 +1,10 @@
-"""
-Base class for models that can interact with environments in this repo
-Any neuralplayground model should inherit this class in order to interact with
+"""Base class for models that can interact with environments in this repo Any
+neuralplayground model should inherit this class in order to interact with
 environments and compare against experimental results.
-We expect to make profound changes in this module as we add more EHC model to the repo
+
+We expect to make profound changes in this module as we add more EHC
+model to the repo
+
 """
 
 import os
@@ -17,7 +19,7 @@ from neuralplayground.vendored import TrajectoryGenerator
 
 
 class AgentCore(object):
-    """Abstract class for all EHC models
+    """Abstract class for all EHC models.
 
     Attributes
     ----------
@@ -28,26 +30,34 @@ class AgentCore(object):
     metadata
         Specific data structure which will contain specific description for each model
     obs_history: list
-        List of past observations while interacting with the environment in the act method
+        List of past observations while interacting with the environment in the act
+        method
     global_steps: int
         Record of number of updates done on the weights
 
     Methods
     -------
     reset(self):
-        Erase all memory from the model, initialize all relevant parameters and build from scratch
+        Erase all memory from the model, initialize all relevant parameters and build
+        from scratch
     act(self, obs):
-        Given an observation, return an action following the policy written in this function
+        Given an observation, return an action following the policy written in this
+        function
     update(self):
         Update model parameters, depends on the specific model
     save_agent(self, save_path: str, raw_object: bool = True):
         Save current state and information in general to re-instantiate the agent
     restore_agent(self, save_path: str):
         Restore saved agent
+
     """
 
     def __init__(
-        self, agent_name: str = "default_model", agent_step_size: float = 1.0, obs_hist_length: int = 1000, **mod_kwargs
+        self,
+        agent_name: str = "default_model",
+        agent_step_size: float = 1.0,
+        obs_hist_length: int = 1000,
+        **mod_kwargs,
     ):
         self.agent_name = agent_name
         self.mod_kwargs = mod_kwargs
@@ -58,25 +68,27 @@ class AgentCore(object):
         self.global_steps = 0
 
     def reset(self):
-        """Erase all memory from the model, initialize all relevant parameters and build from scratch"""
+        """Erase all memory from the model, initialize all relevant parameters
+        and build from scratch.
+        """
         self.obs_history = []
         self.global_steps = 0
 
     def act(self, obs):
-        """
-        The base model executes a random action from a normal distribution
+        """Execute a random action drawn from a normal distribution.
+
         Parameters
         ----------
-        obs
-            Observation from the environment class needed to choose the right action
-        policy_func
-            Arbitrary function that represents a custom policy that receives an observation and gives an action
+        obs : array-like
+            Observation from the environment class needed to choose the right action.
+
         Returns
         -------
-        action: np.array(dtype=float)
-            action value which in this case is random number draw from a 2D-Gaussian
-        """
+        action : np.ndarray of shape (2,)
+            Action value drawn from a 2D Gaussian centred at zero with std
+            ``agent_step_size``.
 
+        """
         if len(obs) == 0:
             action = None
         else:
@@ -89,11 +101,12 @@ class AgentCore(object):
         return action
 
     def update(self):
-        """Update model parameters"""
+        """Update model parameters."""
         return None
 
     def save_agent(self, save_path: str, raw_object: bool = True):
-        """Save current state and information in general to re-instantiate the agent
+        """Save current state and information in general to re-instantiate the
+        agent.
 
         Parameters
         ----------
@@ -102,20 +115,29 @@ class AgentCore(object):
         raw_object: bool
             If True, save the raw object, otherwise save the dictionary of attributes
             If True, you can load the object by using agent = pd.read_pickle(save_path)
-            if False, you can load the object by using agent.restore_environment(save_path)
+            if False, you can load the object by using
+            agent.restore_environment(save_path)
+
         """
         if raw_object:
-            pickle.dump(self, open(os.path.join(save_path), "wb"), pickle.HIGHEST_PROTOCOL)
+            pickle.dump(
+                self, open(os.path.join(save_path), "wb"), pickle.HIGHEST_PROTOCOL
+            )
         else:
-            pickle.dump(self.__dict__, open(os.path.join(save_path), "wb"), pickle.HIGHEST_PROTOCOL)
+            pickle.dump(
+                self.__dict__,
+                open(os.path.join(save_path), "wb"),
+                pickle.HIGHEST_PROTOCOL,
+            )
 
     def restore_agent(self, restore_path: str):
-        """Restore saved environment
+        """Restore saved environment.
 
         Parameters
         ----------
         restore_path: str
             Path to retrieve the agent saved using save_agent method (raw_object=False)
+
         """
         self.__dict__ = pd.read_pickle(restore_path)
 
@@ -127,26 +149,37 @@ class AgentCore(object):
             return False
 
     def get_ratemap_matrix(self):
-        """Function that returns some representation that will be compared against real experimental data"""
+        """Return a representation to be compared against experimental data."""
         pass
 
 
 class RandomAgent(AgentCore):
-    """Simple agent with random trajectories"""
+    """Simple agent with random trajectories."""
 
     def __init__(
-        self, agent_name: str = "random_agent", agent_step_size: float = 1.0, obs_hist_length: int = 1000, **mod_kwargs
+        self,
+        agent_name: str = "random_agent",
+        agent_step_size: float = 1.0,
+        obs_hist_length: int = 1000,
+        **mod_kwargs,
     ):
-        """Initialize random agent
-        Same class as AgentCore, defined for legacy reasons
+        """Initialize random agent Same class as AgentCore, defined for legacy
+        reasons.
         """
-        super().__init__(agent_name=agent_name, agent_step_size=agent_step_size, obs_hist_length=obs_hist_length, **mod_kwargs)
+        super().__init__(
+            agent_name=agent_name,
+            agent_step_size=agent_step_size,
+            obs_hist_length=obs_hist_length,
+            **mod_kwargs,
+        )
 
 
 class LevyFlightAgent(RandomAgent):
     """Based on https://en.wikipedia.org/wiki/L%C3%A9vy_flight
-    and https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.levy_stable.html#scipy.stats.levy_stable
-    Still experimental, need hyperparameter tuning and perhaps some momentum"""
+    and
+    https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.levy_stable.html
+    Still experimental, need hyperparameter tuning and perhaps some momentum
+    """
 
     def __init__(
         self,
@@ -163,28 +196,42 @@ class LevyFlightAgent(RandomAgent):
     ):
         """Initializing levy flight agent
         From original documentation:
-        The probability density above is defined in the “standardized” form. To shift and/or scale the distribution
-        use the loc and scale parameters. Specifically, levy_stable.pdf(x, alpha, beta, loc, scale) is identically
-        equivalent to levy_stable.pdf(y, alpha, beta) / scale with y = (x - loc) / scale. Note that shifting the
-        location of a distribution does not make it a “noncentral” distribution; noncentral generalizations of some
+        The probability density above is defined in the “standardized” form.
+        To shift and/or scale the distribution
+        use the loc and scale parameters. Specifically,
+        levy_stable.pdf(x, alpha, beta, loc, scale) is identically
+        equivalent to levy_stable.pdf(y, alpha, beta) / scale with
+        y = (x - loc) / scale. Note that shifting the
+        location of a distribution does not make it a “noncentral” distribution;
+        noncentral generalizations of some
         distributions are available in separate classes.
 
         Parameters
         ----------
-        alpha, beta: float
-            Levy flight distribution parameters
-        loc: float
-            bias of the standardized form
-        scale: float
-            scaling of the standardized form
-        step_size: float
-            direction scaling
-        max_action_size: float
-            maximum size of sampled step from levy distribution
-        max_step_size: float
-            maximum step size when multiplying max_action_size and step_size
+        agent_name : str
+            Name of the agent instance.
+        alpha : float
+            Stability index of the Lévy distribution.
+        beta : float
+            Skewness parameter of the Lévy distribution.
+        loc : float
+            Location parameter (shift) of the standardised form.
+        scale : float
+            Scale parameter of the standardised form.
+        agent_step_size : float
+            Multiplier applied to the sampled direction vector.
+        max_action_size : float
+            Maximum step magnitude sampled from the Lévy distribution.
+        max_step_size : float
+            Maximum allowed action magnitude; larger steps are subdivided.
+
         """
-        super().__init__(agent_name=agent_name, agent_step_size=agent_step_size, obs_hist_length=obs_hist_length, **mod_kwargs)
+        super().__init__(
+            agent_name=agent_name,
+            agent_step_size=agent_step_size,
+            obs_hist_length=obs_hist_length,
+            **mod_kwargs,
+        )
         self.levy = levy_stable(alpha, beta, loc=loc, scale=scale)
         self.alpha = alpha
         self.beta = beta
@@ -193,17 +240,19 @@ class LevyFlightAgent(RandomAgent):
         self.action_buffer = []
 
     def _act(self, obs):
-        """Auxiliary action method to compute
+        """Auxiliary action method to compute.
 
         Parameters
         ----------
         obs:
-            Whatever observation from the environment class needed to choose the right action
+            Whatever observation from the environment class needed to choose the
+            right action
 
         Returns
         -------
         d_pos: nd.array (2,)
             position variation to compute next position
+
         """
         # Pick direction
         direction = super().act(obs)
@@ -216,27 +265,28 @@ class LevyFlightAgent(RandomAgent):
         return d_pos
 
     def act(self, obs):
-        """Sample levy flight steps. If steps are too large (action_size > max_step_size),
-        it will divide it in several steps in the same direction.
+        """Sample levy flight steps. If steps are too large (action_size >
+        max_step_size), it will divide it in several steps in the same
+        direction.
 
         Parameters
         ----------
         obs:
-            Whatever observation from the environment class needed to choose the right action
+            Whatever observation from the environment class needed to choose the right
+            action
 
         Returns
         -------
         d_pos: nd.array (2,)
             position variation to compute next position
+
         """
         if len(self.action_buffer) > 0:
             action = self.action_buffer.pop()
             return action
         else:
-            """
-            Divide actions into multiple steps in the same direction
-            (Need to refactor this feature)
-            """
+            """Divide actions into multiple steps in the same direction (Need
+            to refactor this feature)"""
             action = self._act(obs)
             action_size = np.sqrt(np.sum(action**2))
             normalized_action = action / action_size
@@ -250,11 +300,12 @@ class LevyFlightAgent(RandomAgent):
 
 
 class RatMovementAgent(RandomAgent):
-    """Vendored code to generate smooth animal trajectory, for more details about the implementation
+    """Vendored code to generate smooth animal trajectory, for more details about the
+    implementation
     visit the original code at
-    https://github.com/ganguli-lab/grid-pattern-formation/blob/master/trajectory_generator.py
+    github.com/ganguli-lab/grid-pattern-formation/blob/master/trajectory_generator.py
     and the foraging method used in this paper
-    https://journals.plos.org/ploscompbiol/article?id=10.1371/journal.pcbi.1002553
+    journals.plos.org/ploscompbiol/article?id=10.1371/journal.pcbi.1002553
     """
 
     def __init__(
@@ -272,30 +323,41 @@ class RatMovementAgent(RandomAgent):
         obs_hist_length: int = 1000,
         **mod_kwargs,
     ):
-        """Agent that follows a trajectory generator
+        """Agent that follows a trajectory generator.
 
         Parameters
         ----------
-        room_width: float
-            Width of the room
-        room_depth: float
-            Depth of the room
-        step_size: float
-            Size of forward velocity
-        auto_scale: bool
-            If True, the parameters are scaled to the room size
-        forward_velocity: float
-            Forward velocity
-        turn_angle_bias: float
-            Turn angle bias
-        turn_angle_stdev: float
-            Turn angle standard deviation
-        border_region: float
-            Border region
-        time_step_size: float
-            Time step size
+        room_width : float
+            Width of the room.
+        room_depth : float
+            Depth of the room.
+        agent_name : str
+            Name of the agent instance.
+        agent_step_size : float
+            Multiplier applied to the trajectory generator's forward velocity.
+        auto_scale : bool
+            If True, trajectory parameters are scaled to the room dimensions.
+        forward_velocity : float, optional
+            Forward velocity of the agent; defaults to the generator's default.
+        turn_angle_bias : float, optional
+            Mean turning angle bias; defaults to the generator's default.
+        turn_angle_stdev : float, optional
+            Standard deviation of the turning angle; defaults to the
+            generator's default.
+        border_region : float, optional
+            Width of the wall-repulsion border region; defaults to the
+            generator's default.
+        time_step_size : float, optional
+            Duration of a single time step in seconds; defaults to the
+            generator's default.
+
         """
-        super().__init__(agent_name=agent_name, agent_step_size=agent_step_size, obs_hist_length=obs_hist_length, **mod_kwargs)
+        super().__init__(
+            agent_name=agent_name,
+            agent_step_size=agent_step_size,
+            obs_hist_length=obs_hist_length,
+            **mod_kwargs,
+        )
         self.agent_step_size = agent_step_size
         self.room_width = room_width
         self.room_depth = room_depth
@@ -317,12 +379,14 @@ class RatMovementAgent(RandomAgent):
         )
         self.initial_head_dir = np.random.uniform(0, 2 * np.pi)
         self.current_head_dir = self.initial_head_dir
-        self.traj_generator.forward_velocity = self.traj_generator.forward_velocity * agent_step_size
+        self.traj_generator.forward_velocity = (
+            self.traj_generator.forward_velocity * agent_step_size
+        )
 
     def act(self, obs):
         current_pos = obs
-        new_pos, new_head_dir, pos_update, head_dir_update = self.traj_generator.single_step(
-            current_pos, self.current_head_dir
+        new_pos, new_head_dir, pos_update, head_dir_update = (
+            self.traj_generator.single_step(current_pos, self.current_head_dir)
         )
         self.current_head_dir = new_head_dir
         self.obs_history.append(new_pos)
