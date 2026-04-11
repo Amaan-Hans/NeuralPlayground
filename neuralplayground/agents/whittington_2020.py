@@ -30,6 +30,138 @@ from .agent_core import AgentCore
 sys.path.append("../")
 
 
+# =============================================================================
+# TD Value Head — dopamine-modulated Hebbian learning
+# =============================================================================
+# Neuroscience background
+# -----------------------
+# Phasic dopamine from the ventral tegmental area (VTA) encodes a reward
+# prediction error (RPE): delta = r + gamma*V(s') - V(s).  Positive RPEs
+# (unexpected reward, or states that reliably predict reward) drive burst
+# firing; negative RPEs drive dips below baseline.  In the hippocampus and
+# entorhinal cortex, dopamine gates long-term potentiation: D1/D5 receptor
+# activation during a burst converts a "tagged" synapse into lasting LTP.
+# This means that place-cell memories formed just before a reward are
+# consolidated more strongly than those far from reward, causing place fields
+# to expand and shift backward along the approach trajectory — the temporal
+# backward shift observed experimentally (Mehta et al. 2000; Stachenfeld et
+# al. 2017).
+#
+# Implementation
+# --------------
+# TDValueHead learns a linear value function V(s) = w_v · p_inf[0](s) over
+# the highest-frequency place cells (finest spatial resolution, 100-D).
+# At each step it computes the TD(0) prediction error delta and returns an
+# eta_scale: a multiplicative factor applied to the Hebbian learning rate
+# eta inside model.hebbian().  Only positive deltas boost eta (dopamine
+# burst); negative deltas are ignored here (dip effects are subtle and the
+# simplest biologically-motivated version only requires the burst pathway).
+#
+# The value weights w_v are updated by a plain NumPy TD rule (no autograd)
+# so they sit completely outside TEM's gradient graph.
+class TDValueHead:
+    """Linear critic over the highest-frequency place cells.
+
+    Learns V(s) = w_v · p_inf[0](s) by TD(0).  Returns per-step, per-
+    environment eta scale factors (1 + beta * max(delta, 0)) that the agent
+    wrapper threads through forward() → iteration() → hebbian() to modulate
+    Hebbian memory consolidation in a dopamine-like manner.
+
+    Parameters
+    ----------
+    n_place_cells : int
+        Dimensionality of p_inf[0] — the highest-frequency place cell
+        module.  Equal to params["n_p"][0] (default 100).
+    batch_size : int
+        Number of parallel environments.
+    gamma : float
+        TD discount factor.  0.9 gives roughly a 10-step horizon, meaning
+        states up to ~10 steps before reward accumulate meaningful value.
+    lr : float
+        Learning rate for the value weight update.
+    beta : float
+        Gain factor converting a positive TD error into an eta boost.
+        eta_eff = eta_base * (1 + beta * max(delta, 0)).
+        beta=3.0 means a delta of 1.0 quadruples the Hebbian rate at that
+        step; beta=0 disables the modulation entirely.
+    """
+
+    def __init__(self, n_place_cells, batch_size, gamma=0.9, lr=0.01, beta=3.0):
+        self.batch_size = batch_size
+        self.gamma = gamma
+        self.lr = lr
+        self.beta = beta
+        # One weight vector per environment so each arena learns its own
+        # value function independently.
+        self.w_v = np.zeros((batch_size, n_place_cells))
+
+    def value(self, p_f0):
+        """Compute V(s) for all environments.
+
+        Parameters
+        ----------
+        p_f0 : np.ndarray, shape [batch_size, n_place_cells]
+            Highest-frequency place cell activations for the current step,
+            extracted from step.p_inf[0].detach().numpy().
+
+        Returns
+        -------
+        V : np.ndarray, shape [batch_size]
+        """
+        return np.einsum("bi,bi->b", self.w_v, p_f0)
+
+    def td_step(self, p_f0_t, p_f0_t1, rewards):
+        """Compute TD error and update value weights.
+
+        delta = r + gamma * V(s') - V(s)
+        w_v  += lr * delta * p_f0(s)   (semi-gradient TD(0))
+
+        Parameters
+        ----------
+        p_f0_t : np.ndarray, shape [batch_size, n_place_cells]
+            Place cell activity at time t.
+        p_f0_t1 : np.ndarray, shape [batch_size, n_place_cells]
+            Place cell activity at time t+1.
+        rewards : np.ndarray, shape [batch_size]
+            Reward received on the transition t -> t+1.
+
+        Returns
+        -------
+        delta : np.ndarray, shape [batch_size]
+            The TD prediction error for each environment.
+        """
+        v_t = self.value(p_f0_t)
+        v_t1 = self.value(p_f0_t1)
+        delta = rewards + self.gamma * v_t1 - v_t
+        # Semi-gradient update: treat V(s') as a constant (standard TD(0))
+        self.w_v += self.lr * delta[:, np.newaxis] * p_f0_t
+        return delta
+
+    def eta_scale(self, delta):
+        """Convert a TD error into a Hebbian rate multiplier.
+
+        Only positive errors (dopamine bursts) boost consolidation.
+        Negative errors are clamped to zero effect on eta so that the
+        forgetting rate lambda handles the 'no-reward' signal separately
+        (matching the biological observation that D1 receptor activation
+        drives LTP, while reduced firing from baseline does not directly
+        cause LTD in the same synapses).
+
+        Parameters
+        ----------
+        delta : np.ndarray, shape [batch_size]
+
+        Returns
+        -------
+        scale : np.ndarray, shape [batch_size]
+            Multiplicative factor for eta_base.  Always >= 1.0.
+        """
+        return 1.0 + self.beta * np.maximum(delta, 0.0)
+
+
+# =============================================================================
+
+
 class Whittington2020(AgentCore):
     """Implementation of TEM 2020 by James C.R. Whittington, Timothy H. Muller,
     Shirley Mark, Guifen Chen, Caswell Barry, Neil Burgess, Timothy E.J.
@@ -121,6 +253,18 @@ class Whittington2020(AgentCore):
         self.final_model_input = None
         self.g_rates, self.p_rates = None, None
         self.prev_observations = None
+
+        # --- TD / dopamine state (Phase 2) ---
+        # These are all None in Phase 1 and populated by activate_td_learning().
+        # Keeping them as explicit attributes makes it easy to checkpoint and
+        # inspect the value function alongside the TEM model weights.
+        self.td_active = False          # switched on by activate_td_learning()
+        self.value_head = None          # TDValueHead instance
+        self.reward_ids = None          # list[int], reward state ID per env
+        # eta scale factors from the *previous* rollout, applied to the
+        # *current* rollout's Hebbian update (eligibility-trace-like delay).
+        self.prev_eta_scales = None     # np.ndarray [n_rollout, batch_size]
+
         self.reset()
 
     def reset(self):
@@ -287,7 +431,28 @@ class Whittington2020(AgentCore):
         ]
         self.final_model_input = model_input
 
-        forward = self.tem(model_input, self.prev_iter)
+        # --- TD dopamine modulation: pass eta_scales from previous rollout ---
+        # During Phase 1 (td_active=False) prev_eta_scales is None, so forward()
+        # behaves exactly as the original model — no code path changes.
+        #
+        # During Phase 2 (td_active=True) we pass the eta scale factors computed
+        # from the *previous* rollout's TD errors.  Using the previous rollout (not
+        # the current one) avoids a chicken-and-egg problem (we need p_inf to
+        # compute delta, but we need delta to set eta before getting p_inf).  It
+        # also matches the eligibility-trace biology: activity tags the synapse
+        # *during* the step, and the delayed dopamine burst consolidates it
+        # *afterward*.  The one-rollout lag (~20 steps) is short relative to the
+        # place field shift timescale.
+        forward = self.tem(
+            model_input,
+            self.prev_iter,
+            eta_scales=self.prev_eta_scales if self.td_active else None,
+        )
+
+        # After the forward pass, compute new TD errors and eta scales from this
+        # rollout so they are ready for the next one.
+        if self.td_active:
+            self.prev_eta_scales = self._compute_td_scales(forward)
 
         # Accumulate loss from forward pass
         loss = torch.tensor(0.0)
@@ -421,6 +586,123 @@ class Whittington2020(AgentCore):
             os.path.join(self.script_path, "whittington_2020_utils.py"),
         )
         return
+
+    # =========================================================================
+    # TD / dopamine modulation — Phase 2 interface
+    # =========================================================================
+
+    def activate_td_learning(self, reward_ids, gamma=0.9, lr=0.01, beta=3.0):
+        """Switch the agent from unsupervised TEM (Phase 1) to TD-modulated
+        Hebbian learning (Phase 2).
+
+        Call this *after* Phase 1 training has converged so that the grid/
+        place cell representations are already meaningful before reward
+        information is introduced.  This matches the biological situation
+        where spatial representations are formed first during exploration,
+        and dopaminergic modulation then sculpts them based on reward value.
+
+        Parameters
+        ----------
+        reward_ids : list[int], length batch_size
+            State ID of the reward location in each parallel environment.
+            Use env.n_states[i] * fraction to place it at any position.
+        gamma : float
+            TD discount factor (default 0.9 → ~10 step horizon).
+        lr : float
+            Value function learning rate (default 0.01).
+        beta : float
+            Hebbian rate gain per unit of positive TD error.
+            eta_eff = eta_base * (1 + beta * max(delta, 0)).
+        """
+        self.reward_ids = reward_ids
+        self.value_head = TDValueHead(
+            n_place_cells=self.pars["n_p"][0],  # highest-frequency module
+            batch_size=self.batch_size,
+            gamma=gamma,
+            lr=lr,
+            beta=beta,
+        )
+        self.prev_eta_scales = None  # will be computed after first Phase 2 rollout
+        self.td_active = True
+
+    def _get_reward_signals(self, forward):
+        """Return a reward array for each (step, environment) pair.
+
+        Reward = 1.0 when the agent is at the designated reward location,
+        0.0 otherwise.  The random-walk policy means the agent visits the
+        reward location by chance; we do not need to change the policy.
+
+        Parameters
+        ----------
+        forward : list[Iteration]
+            Output of self.tem(model_input, ...) — one Iteration per step.
+
+        Returns
+        -------
+        rewards : np.ndarray, shape [n_steps, batch_size]
+        """
+        n_steps = len(forward)
+        rewards = np.zeros((n_steps, self.batch_size))
+        for step_i, step in enumerate(forward):
+            for env_i in range(self.batch_size):
+                if step.g[env_i]["id"] == self.reward_ids[env_i]:
+                    rewards[step_i, env_i] = 1.0
+        return rewards
+
+    def _extract_place_cells(self, step):
+        """Return the highest-frequency place cell activations as numpy array.
+
+        Parameters
+        ----------
+        step : Iteration
+
+        Returns
+        -------
+        p_f0 : np.ndarray, shape [batch_size, n_p[0]]
+            Detached from the autograd graph so it can be used in NumPy TD
+            updates without polluting TEM's gradient.
+        """
+        return step.p_inf[0].detach().numpy()
+
+    def _compute_td_scales(self, forward):
+        """Compute per-step, per-environment eta scale factors from TD errors.
+
+        Iterates over consecutive pairs of steps in the rollout, computes
+        TD(0) prediction errors using the linear value function, updates the
+        value weights, then converts deltas into Hebbian rate multipliers.
+
+        The resulting scale array is stored as self.prev_eta_scales and will
+        be passed to forward() on the *next* rollout.  This one-rollout delay
+        is the eligibility-trace analogue: the synapse is tagged by activity
+        now, and the dopamine signal (arriving after the reward is processed)
+        determines whether it is potentiated.
+
+        Parameters
+        ----------
+        forward : list[Iteration], length n_rollout
+
+        Returns
+        -------
+        eta_scales : np.ndarray, shape [n_rollout, batch_size]
+            Values are 1.0 (no boost) everywhere except at steps where a
+            positive TD error was observed, where they are > 1.0.
+        """
+        n_steps = len(forward)
+        rewards = self._get_reward_signals(forward)
+        # Default: no boost (scale = 1.0 everywhere)
+        eta_scales = np.ones((n_steps, self.batch_size))
+
+        for step_i in range(n_steps - 1):
+            p_t = self._extract_place_cells(forward[step_i])
+            p_t1 = self._extract_place_cells(forward[step_i + 1])
+            r = rewards[step_i]  # reward on transition t -> t+1
+            delta = self.value_head.td_step(p_t, p_t1, r)
+            eta_scales[step_i] = self.value_head.eta_scale(delta)
+
+        # Last step: no s' available, leave scale at 1.0
+        return eta_scales
+
+    # =========================================================================
 
     def action_policy(self):
         """Random action policy that selects an action to take from [stay, up,

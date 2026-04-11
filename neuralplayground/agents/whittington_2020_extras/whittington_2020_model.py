@@ -35,7 +35,7 @@ class Model(torch.nn.Module):
         # Create trainable parameters
         self.init_trainable()
 
-    def forward(self, walk, prev_iter=None, prev_M=None):
+    def forward(self, walk, prev_iter=None, prev_M=None, eta_scales=None):
         """Forward pass of TEM model. This consists of a transition, followed
         by an inference and a generative step, for each step of the walk.
 
@@ -51,6 +51,20 @@ class Model(torch.nn.Module):
             prev_M: list of memory connectivity matrices for each frequency module. If
             None, all connectivity matrices are
             initialised as zero.
+            eta_scales: optional numpy array of shape [n_steps, batch_size].
+                Each value is a multiplicative scale applied to the base
+                Hebbian learning rate self.hyper["eta"] for that specific
+                (step, environment) pair. Computed from the TD prediction
+                error of the *previous* rollout by the agent wrapper
+                (whittington_2020.py) and passed in during Phase 2 training.
+                When None (Phase 1 or first Phase 2 rollout) no modulation
+                is applied and behaviour is identical to the original model.
+                The delayed application (previous rollout's errors modulate
+                the current rollout's Hebbian update) is analogous to the
+                biological eligibility-trace + dopamine mechanism: synapses
+                are tagged by co-activity during the step, and a delayed
+                dopamine signal (from the next experience of reward) decides
+                whether the tag gets converted into lasting LTP.
 
         Returns
         -------
@@ -65,7 +79,8 @@ class Model(torch.nn.Module):
         # Forward pass: perform a TEM iteration for each set of [place, observation,
         # action], and produce inferred and
         # generated variables for each step.
-        for g, x, a in walk:
+        # Use enumerate so we can index into eta_scales by step.
+        for step_i, (g, x, a) in enumerate(walk):
             # If there is no previous iteration at all: all walks are new, initialise a
             # whole new iteration object
             if steps is None:
@@ -75,9 +90,31 @@ class Model(torch.nn.Module):
                 steps = [
                     self.init_iteration(g, x, [None for _ in range(len(a))], prev_M)
                 ]
+
+            # --- TD dopamine modulation: compute per-step eta override ---
+            # eta_scales[step_i] is a [batch_size] array of multipliers derived
+            # from TD errors (1 + beta * max(delta, 0)).  Reshaping to
+            # [batch_size, 1, 1] allows it to broadcast over the Hebbian
+            # memory matrix M which has shape [batch_size, sum_n_p, sum_n_p].
+            # When eta_scales is None (Phase 1), eta_override stays None and
+            # hebbian() falls back to the global self.hyper["eta"] unchanged.
+            if eta_scales is not None:
+                scale = torch.tensor(
+                    eta_scales[step_i], dtype=torch.float
+                ).view(-1, 1, 1)
+                eta_override = self.hyper["eta"] * scale
+            else:
+                eta_override = None
+
             # Perform TEM iteration using transition from previous iteration
             L, M, g_gen, p_gen, x_gen, x_logits, x_inf, g_inf, p_inf = self.iteration(
-                x, g, steps[-1].a, steps[-1].M, steps[-1].x_inf, steps[-1].g_inf
+                x,
+                g,
+                steps[-1].a,
+                steps[-1].M,
+                steps[-1].x_inf,
+                steps[-1].g_inf,
+                eta_override=eta_override,
             )
             # Store this iteration in iteration object in steps list
             steps.append(
@@ -92,7 +129,7 @@ class Model(torch.nn.Module):
         # Return steps, which is a list of Iteration objects
         return steps
 
-    def iteration(self, x, locations, a_prev, M_prev, x_prev, g_prev):
+    def iteration(self, x, locations, a_prev, M_prev, x_prev, g_prev, eta_override=None):
         """Perform a single iteration of the TEM model. This consists of a
         transition step, followed by an inference step and a generative step.
 
@@ -104,6 +141,12 @@ class Model(torch.nn.Module):
             M_prev: previous memory connectivity matrix
             x_prev: previous sensory experience
             g_prev: previous abstract location
+            eta_override: optional per-step Hebbian learning rate tensor
+                (shape [batch_size, 1, 1] or scalar). When not None this
+                replaces self.hyper["eta"] in both the generative and
+                inference Hebbian updates for this single timestep. Supplied
+                by forward() during Phase 2 TD training. See hebbian() for
+                full rationale.
 
         Returns
         -------
@@ -134,8 +177,21 @@ class Model(torch.nn.Module):
         # for generation)
         x_gen, x_logits, p_gen = self.generative(M_prev, p_inf, g_inf, gt_gen)
         # Update generative memory with generated and inferred grounded location.
-        M = [self.hebbian(M_prev[0], torch.cat(p_inf, dim=1), torch.cat(p_gen, dim=1))]
-        # If using memory for grounded location inference: append inference memory
+        # Pass eta_override so dopamine-modulated steps use a per-environment
+        # learning rate rather than the global hyper["eta"]. When eta_override
+        # is None (Phase 1) the call is identical to the original.
+        M = [
+            self.hebbian(
+                M_prev[0],
+                torch.cat(p_inf, dim=1),
+                torch.cat(p_gen, dim=1),
+                eta_override=eta_override,
+            )
+        ]
+        # If using memory for grounded location inference: append inference memory.
+        # The same dopamine signal (eta_override) gates both generative and
+        # inference consolidation - biologically both synaptic pathways are
+        # modulated by the same VTA dopamine release.
         if self.hyper[
             "use_p_inf"
         ]:  # Inference memory is identical to generative memory if using common memory,
@@ -148,6 +204,7 @@ class Model(torch.nn.Module):
                     torch.cat(p_inf, dim=1),
                     torch.cat(p_inf_x, dim=1),
                     do_hierarchical_connections=False,
+                    eta_override=eta_override,
                 )
             )
         # Calculate loss of this step
@@ -1473,7 +1530,12 @@ class Model(torch.nn.Module):
         return p
 
     def hebbian(
-        self, M_prev, p_inferred, p_generated, do_hierarchical_connections=True
+        self,
+        M_prev,
+        p_inferred,
+        p_generated,
+        do_hierarchical_connections=True,
+        eta_override=None,
     ):
         """Update attractor network memory by Hebbian learning of pattern. For
         example, initial attractor input can come from abstract location (g_)
@@ -1485,6 +1547,15 @@ class Model(torch.nn.Module):
             p_inferred: inferred grounded (place cell) locations
             p_generated: generated grounded (place cell) locations
             do_hierarchical_connections: whether to use hierarchical connections
+            eta_override: optional tensor to replace self.hyper["eta"] for this
+                step. Shape must broadcast with M (i.e. scalar or
+                [batch_size, 1, 1]). Used by the TD dopamine modulation in
+                Phase 2: a per-step, per-environment Hebbian learning rate that
+                is proportional to the TD prediction error, mimicking how
+                phasic dopamine from VTA gates hippocampal synaptic
+                consolidation (higher dopamine -> stronger LTP at reward-
+                predictive locations -> place fields shift backward toward
+                reward).
 
         Returns
         -------
@@ -1506,10 +1577,19 @@ class Model(torch.nn.Module):
         # frequencies for hierarchical retrieval
         if do_hierarchical_connections:
             M_new = M_new * self.hyper["p_update_mask"]
+
+        # --- TD dopamine modulation ---
+        # Use eta_override when provided (Phase 2), otherwise fall back to the
+        # globally scheduled eta (Phase 1). eta_override is a tensor shaped
+        # [batch_size, 1, 1] so it broadcasts independently across each
+        # environment's memory matrix without changing any of the surrounding
+        # gradient graph.
+        eta = eta_override if eta_override is not None else self.hyper["eta"]
+
         # Store grounded location in attractor network memory with weights M by Hebbian
         # learning of pattern
         M = torch.clamp(
-            self.hyper["lambda"] * M_prev + self.hyper["eta"] * M_new, min=-1, max=1
+            self.hyper["lambda"] * M_prev + eta * M_new, min=-1, max=1
         )
         return M
 
