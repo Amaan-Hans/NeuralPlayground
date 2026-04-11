@@ -240,6 +240,24 @@ class Whittington2020(AgentCore):
         self.state_densities = mod_kwargs["state_densities"]
 
         self.pars = copy.deepcopy(params)
+
+        # --- Device selection ---
+        # Priority: explicit kwarg > CUDA > Apple MPS > CPU.
+        # Pass "device" in agent_params to override auto-detection.
+        _device_str = mod_kwargs.get("device", None)
+        if _device_str is None:
+            if torch.cuda.is_available():
+                _device_str = "cuda"
+            elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                _device_str = "mps"
+            else:
+                _device_str = "cpu"
+        self.device = torch.device(_device_str)
+        # Embed the resolved device in pars so Model.__init__ can use it when
+        # moving static hyper tensors (p_update_mask, W_repeat, etc.) via
+        # _move_hyper_to_device().  Must be set before reset() creates the Model.
+        self.pars["device"] = str(self.device)
+
         self.tem = model.Model(self.pars)
         self.batch_size = mod_kwargs["batch_size"]
         self.use_behavioural_data = mod_kwargs["use_behavioural_data"]
@@ -273,6 +291,10 @@ class Whittington2020(AgentCore):
         initialisation.
         """
         self.tem = model.Model(self.pars)
+        # Move all registered nn.Parameters (MLP weights, g_init, alpha, etc.)
+        # to the target device.  Static hyper tensors were already moved inside
+        # Model.__init__ via _move_hyper_to_device().
+        self.tem.to(self.device)
         self.initialise()
         self.n_walk = -1
         self.final_model_input = None
@@ -408,6 +430,9 @@ class Whittington2020(AgentCore):
             self.walk_length_center,
             loss_weights,
         ) = parameters.parameter_iteration(self.iter, self.pars)
+        # parameter_iteration() creates loss_weights on CPU; move it to the
+        # target device so it can multiply step losses that live on that device.
+        loss_weights = loss_weights.to(self.device)
         # Update eta and lambda
         self.tem.hyper["eta"] = self.eta_new
         self.tem.hyper["lambda"] = self.lambda_new
@@ -418,13 +443,16 @@ class Whittington2020(AgentCore):
         for param_group in self.adam.param_groups:
             param_group["lr"] = self.lr
 
-        # Collect all information in walk variable
+        # Collect all information in walk variable.
+        # Move the observation tensor to self.device immediately after creation
+        # so the entire forward pass runs on the target device without any
+        # mid-graph CPU↔GPU copies.
         model_input = [
             [
                 locations[i],
-                torch.from_numpy(np.reshape(observations, (20, 16, 45))[i]).type(
-                    torch.float32
-                ),
+                torch.from_numpy(np.reshape(observations, (20, 16, 45))[i])
+                .type(torch.float32)
+                .to(self.device),
                 np.reshape(action_values, (20, 16))[i].tolist(),
             ]
             for i in range(self.pars["n_rollout"])
@@ -454,8 +482,10 @@ class Whittington2020(AgentCore):
         if self.td_active:
             self.prev_eta_scales = self._compute_td_scales(forward)
 
-        # Accumulate loss from forward pass
-        loss = torch.tensor(0.0)
+        # Accumulate loss from forward pass.
+        # Initialise on self.device so accumulation doesn't cause device mismatches
+        # when individual step losses arrive from the forward pass on that device.
+        loss = torch.tensor(0.0, device=self.device)
         # Make vector for plotting losses
         plot_loss = 0
         # Collect all losses / variables
@@ -470,13 +500,14 @@ class Whittington2020(AgentCore):
                     )
                 else:
                     env_visited[step.g[env_i]["id"]] = True
+            # Fallback zero must also be on self.device to allow `loss += step_loss`
             step_loss = (
-                torch.tensor(0)
+                torch.tensor(0, device=self.device)
                 if not step_loss
                 else torch.mean(torch.stack(step_loss, dim=0), dim=0)
             )
-            # Save all separate components of loss for monitoring
-            plot_loss = plot_loss + step_loss.detach().numpy()
+            # .cpu() is required before .numpy() when running on GPU; no-op on CPU
+            plot_loss = plot_loss + step_loss.detach().cpu().numpy()
             # And sum all components, then add them to total loss of this step
             loss = loss + torch.sum(step_loss)
 
@@ -662,7 +693,8 @@ class Whittington2020(AgentCore):
             Detached from the autograd graph so it can be used in NumPy TD
             updates without polluting TEM's gradient.
         """
-        return step.p_inf[0].detach().numpy()
+        # .cpu() must precede .numpy() when the model runs on GPU
+        return step.p_inf[0].detach().cpu().numpy()
 
     def _compute_td_scales(self, forward):
         """Compute per-step, per-environment eta scale factors from TD errors.
@@ -793,7 +825,7 @@ class Whittington2020(AgentCore):
                 locations[i],
                 torch.from_numpy(
                     np.reshape(observations, (self.n_walk, 16, 45))[i]
-                ).type(torch.float32),
+                ).type(torch.float32).to(self.device),
                 np.reshape(action_values, (self.n_walk, 16))[i].tolist(),
             ]
             for i in range(self.n_walk)

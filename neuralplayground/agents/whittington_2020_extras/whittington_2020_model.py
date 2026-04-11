@@ -32,6 +32,18 @@ class Model(torch.nn.Module):
         # Copy hyperparameters (e.g. network sizes) from parameter dict, usually
         # generated from parameters() in parameters.py
         self.hyper = copy.deepcopy(params)
+
+        # --- GPU support ---
+        # Resolve the target device from the params dict.  The agent wrapper
+        # (Whittington2020) sets params["device"] before constructing this
+        # model; if absent we fall back to CPU so old code still works.
+        self.device = torch.device(self.hyper.get("device", "cpu"))
+        # Move all static (non-trainable) tensors stored in self.hyper to the
+        # target device.  Trainable nn.Parameters are moved later when the
+        # caller does model.to(device).  Static tensors are NOT registered as
+        # parameters so they don't move automatically — we have to do it here.
+        self._move_hyper_to_device()
+
         # Create trainable parameters
         self.init_trainable()
 
@@ -99,8 +111,10 @@ class Model(torch.nn.Module):
             # When eta_scales is None (Phase 1), eta_override stays None and
             # hebbian() falls back to the global self.hyper["eta"] unchanged.
             if eta_scales is not None:
+                # Create scale tensor directly on self.device to avoid a
+                # CPU→GPU copy mid-forward-pass.
                 scale = torch.tensor(
-                    eta_scales[step_i], dtype=torch.float
+                    eta_scales[step_i], dtype=torch.float, device=self.device
                 ).view(-1, 1, 1)
                 eta_override = self.hyper["eta"] * scale
             else:
@@ -371,6 +385,47 @@ class Model(torch.nn.Module):
         L = [L_p_g, L_p_x, L_x_gen, L_x_g, L_x_p, L_g, L_reg_g, L_reg_p]
         return L
 
+    def _move_hyper_to_device(self):
+        """Move all static tensors stored in self.hyper to self.device.
+
+        self.hyper contains two kinds of entries:
+          - Scalar / Python-native values: left untouched.
+          - torch.Tensor or list[torch.Tensor]: moved to self.device.
+
+        This must be called once at the end of __init__, *before*
+        init_trainable(), so that every use of these matrices inside
+        forward() / hebbian() / attractor() etc. is already on the correct
+        device.  Trainable nn.Parameters are handled separately by the
+        standard model.to(device) call in the agent wrapper.
+
+        Keys that hold static tensors (from whittington_2020_parameters.py):
+          loss_weights      — scalar weight vector for the 8-component loss
+          p_update_mask     — Hebbian connectivity mask [sum_n_p, sum_n_p]
+          p_retrieve_mask_inf/gen — per-iteration attractor masks
+          W_repeat, W_tile  — outer-product helper matrices
+          two_hot_table     — lookup table of two-hot codes
+          g_downsample      — grid-cell downsampling matrices
+        """
+        # Single tensors
+        for key in ("loss_weights", "p_update_mask"):
+            if key in self.hyper and isinstance(self.hyper[key], torch.Tensor):
+                self.hyper[key] = self.hyper[key].to(self.device)
+
+        # Lists of tensors
+        for key in (
+            "p_retrieve_mask_inf",
+            "p_retrieve_mask_gen",
+            "W_repeat",
+            "W_tile",
+            "two_hot_table",
+            "g_downsample",
+        ):
+            if key in self.hyper and isinstance(self.hyper[key], list):
+                self.hyper[key] = [
+                    t.to(self.device) if isinstance(t, torch.Tensor) else t
+                    for t in self.hyper[key]
+                ]
+
     def init_trainable(self):
         """Initialise all trainable parameters of the TEM model.
 
@@ -619,9 +674,10 @@ class Model(torch.nn.Module):
         # initialised yet
         if M is None:
             # Create new empty memory dict for generative network: zero connectivity
-            # matrix M_0, then empty
-            # list of the memory vectors a and b for each iteration for efficient
-            # hebbian memory computation
+            # matrix M_0, then empty list of the memory vectors a and b for each
+            # iteration for efficient Hebbian memory computation.
+            # Use self.device so the memory matrix lives on the same device as the
+            # model's trainable parameters — critical for GPU training.
             M = [
                 torch.zeros(
                     (
@@ -630,6 +686,7 @@ class Model(torch.nn.Module):
                         sum(self.hyper["n_p"]),
                     ),
                     dtype=torch.float,
+                    device=self.device,
                 )
             ]
             # Append inference memory only if memory is used in grounded location
@@ -649,18 +706,25 @@ class Model(torch.nn.Module):
                             sum(self.hyper["n_p"]),
                         ),
                         dtype=torch.float,
+                        device=self.device,
                     )
                 )
                 # Initialise previous abstract location by stacking abstract location
                 # prior
+        # g_init is an nn.Parameter so it moves to device with model.to(device);
+        # torch.stack of device tensors produces a device tensor — no extra .to() needed.
         g_inf = [
             torch.stack([self.g_init[f] for _ in range(self.hyper["batch_size"])])
             for f in range(self.hyper["n_f"])
         ]
         # Initialise previous sensory experience with zeros, as there is no data yet for
-        # temporal smoothing
+        # temporal smoothing.  Must be on self.device so it can be concatenated with
+        # other device tensors in the first real step.
         x_inf = [
-            torch.zeros((self.hyper["batch_size"], self.hyper["n_x_f"][f]))
+            torch.zeros(
+                (self.hyper["batch_size"], self.hyper["n_x_f"][f]),
+                device=self.device,
+            )
             for f in range(self.hyper["n_f"])
         ]
         # And construct new iteration for that g, x, a, and M
@@ -700,9 +764,13 @@ class Model(torch.nn.Module):
                         # Reset the abstract location for this walk
                     for f, g_inf in enumerate(prev_iter[0].g_inf):
                         g_inf[a_i, :] = self.g_init[f]
-                    # Reset the sensory experience for this walk
+                    # Reset the sensory experience for this walk.
+                    # The zero vector must match the device of x_inf (already on
+                    # self.device from init_iteration).
                     for f, x_inf in enumerate(prev_iter[0].x_inf):
-                        x_inf[a_i, :] = torch.zeros(self.hyper["n_x_f"][f])
+                        x_inf[a_i, :] = torch.zeros(
+                            self.hyper["n_x_f"][f], device=self.device
+                        )
         # Return the iteration with reset parameters (or simply the empty array if
         # prev_iter was empty)
         return prev_iter
@@ -1126,22 +1194,25 @@ class Model(torch.nn.Module):
         # And also keep track of which walks these valid step actions are for
         a_do_step = [a is not None for a in a_prev]
         # Transform list of actions into batch of one-hot row vectors.
+        # Infer device from g_prev: the abstract location tensors are already on
+        # self.device (they flow from init_iteration through every forward step).
+        # Creating the action tensor directly on that device avoids a CPU→GPU copy.
+        dev = g_prev[0].device
         if self.hyper["has_static_action"]:
             # If this world has static actions: whenever action 0 (standing still)
             # appears, the action vector
             # should be all zeros. All other actions should have a 1 in the label-1
             # entry
-            a = torch.zeros((len(a_prev_step), self.hyper["n_actions"])).scatter_(
-                1,
-                torch.clamp(torch.tensor(a_prev_step).unsqueeze(1) - 1, min=0),
-                1.0 * (torch.tensor(a_prev_step).unsqueeze(1) > 0),
-            )
+            a_t = torch.tensor(a_prev_step, device=dev).unsqueeze(1)
+            a = torch.zeros(
+                (len(a_prev_step), self.hyper["n_actions"]), device=dev
+            ).scatter_(1, torch.clamp(a_t - 1, min=0), 1.0 * (a_t > 0))
         else:
             # Without static actions: each action label should become a one-hot vector
             # for that label
-            a = torch.zeros((len(a_prev_step), self.hyper["n_actions"])).scatter_(
-                1, torch.tensor(a_prev_step).unsqueeze(1), 1.0
-            )
+            a = torch.zeros(
+                (len(a_prev_step), self.hyper["n_actions"]), device=dev
+            ).scatter_(1, torch.tensor(a_prev_step, device=dev).unsqueeze(1), 1.0)
         # Get vector of transition weights by feeding actions into MLP
         D_a = self.MLP_D_a([a for _ in range(self.hyper["n_f"])])
         # Replace transition weights by non-directional transition weights in
@@ -1502,10 +1573,14 @@ class Model(torch.nn.Module):
         # Apply activation function to initial memory index
         h_t = self.f_p(h_t)
         # Hierarchical retrieval (not in paper) is implemented by early stopping
-        # retrieval for low frequencies,
-        # using a mask. If not specified: initialise mask as all 1s
+        # retrieval for low frequencies, using a mask.
+        # If not specified: initialise mask as all 1s on the same device as h_t
+        # (which is already on self.device after flowing from init_iteration).
         retrieve_it_mask = (
-            [torch.ones(sum(self.hyper["n_p"])) for _ in range(self.hyper["n_p"])]
+            [
+                torch.ones(sum(self.hyper["n_p"]), device=h_t.device)
+                for _ in range(self.hyper["n_p"])
+            ]
             if retrieve_it_mask is None
             else retrieve_it_mask
         )
@@ -1750,13 +1825,21 @@ class LSTM(torch.nn.Module):
             lstm_hidden: hidden state
 
         """
-        # If previous hidden and cell state are not provided: initialise them randomly
+        # If previous hidden and cell state are not provided: initialise them randomly.
+        # Use data.device so hidden states live on the same device as the input
+        # sequence — essential for GPU operation where data may be on CUDA.
         if prev_hidden is None:
             hidden_state = torch.randn(
-                self.lstm.num_layers, data.shape[0], self.lstm.hidden_size
+                self.lstm.num_layers,
+                data.shape[0],
+                self.lstm.hidden_size,
+                device=data.device,
             )
             cell_state = torch.randn(
-                self.lstm.num_layers, data.shape[0], self.lstm.hidden_size
+                self.lstm.num_layers,
+                data.shape[0],
+                self.lstm.hidden_size,
+                device=data.device,
             )
             prev_hidden = (hidden_state, cell_state)
         # Run input through lstm
@@ -1780,10 +1863,12 @@ class LSTM(torch.nn.Module):
             data: prepared input data
 
         """
-        # Transform list of actions of each step into batch of one-hot row vectors
+        # Transform list of actions of each step into batch of one-hot row vectors.
+        # Infer device from the observation tensor (step[1]) so action tensors
+        # live on the same device as the rest of the input batch.
         actions = [
-            torch.zeros((len(step[2]), self.n_a)).scatter_(
-                1, torch.tensor(step[2]).unsqueeze(1), 1.0
+            torch.zeros((len(step[2]), self.n_a), device=step[1].device).scatter_(
+                1, torch.tensor(step[2], device=step[1].device).unsqueeze(1), 1.0
             )
             for step in data_in
         ]
@@ -1843,9 +1928,11 @@ class Iteration:
             accuracy: accuracy of model prediction for this iteration
 
         """
-        # Detach observation and all predictions
-        observation = self.x.detach().numpy()
-        predictions = [tensor.detach().numpy() for tensor in self.x_gen]
+        # Detach observation and all predictions.
+        # .cpu() is required before .numpy() when tensors are on GPU: numpy
+        # cannot access CUDA memory directly.  On CPU this is a no-op.
+        observation = self.x.detach().cpu().numpy()
+        predictions = [tensor.detach().cpu().numpy() for tensor in self.x_gen]
         # Did the model predict the right observation in this iteration?
         accuracy = [
             np.argmax(prediction, axis=-1) == np.argmax(observation, axis=-1)

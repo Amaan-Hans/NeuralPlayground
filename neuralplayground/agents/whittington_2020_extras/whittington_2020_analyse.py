@@ -72,7 +72,7 @@ def performance(forward, model, environments):
             correct.append(
                 (
                     torch.argmax(step.x_gen[2][env_i]) == torch.argmax(step.x[env_i])
-                ).numpy()
+                ).cpu().numpy()
             )
             # Add the fraction of locations visited for this step
             location_frac.append(np.sum(location_visited) / location_visited.size)
@@ -127,11 +127,13 @@ def location_accuracy(forward, model, environments):
             # Prediction on arrival: sensory prediction when arriving at given node
             correct_to[step.g[env_i]["id"]].append(
                 (torch.argmax(step.x_gen[2][env_i]) == torch.argmax(step.x[env_i]))
+                .cpu()
                 .numpy()
                 .tolist()
             )
             correct_from[forward[step_i].g[env_i]["id"]].append(
                 (torch.argmax(step.x_gen[2][env_i]) == torch.argmax(step.x[env_i]))
+                .cpu()
                 .numpy()
                 .tolist()
             )
@@ -259,7 +261,7 @@ def zero_shot(forward, model, environments, include_stay_still=True):
                     (
                         torch.argmax(step.x_gen[2][env_i])
                         == torch.argmax(step.x[env_i])
-                    ).numpy()
+                    ).cpu().numpy()
                 )
             # Update the previous action as taken
             if prev_a is not None:
@@ -348,7 +350,7 @@ def compare_to_agents(forward, model, environments, include_stay_still=True):
             correct_model.append(
                 (
                     torch.argmax(step.x_gen[2][env_i]) == torch.argmax(step.x[env_i])
-                ).numpy()
+                ).cpu().numpy()
             )
             # Update node agent prediction for this step: correct when this state was
             # visited beofre, otherwise chance
@@ -356,7 +358,7 @@ def compare_to_agents(forward, model, environments, include_stay_still=True):
                 True
                 if location_visited[step.g[env_i]["id"]]
                 else np.random.randint(model.hyper["n_x"])
-                == torch.argmax(step.x[env_i]).numpy()
+                == torch.argmax(step.x[env_i]).cpu().numpy()
             )
             # Update edge agent prediction for this step: always correct if no action
             # taken, correct when action leading
@@ -368,7 +370,7 @@ def compare_to_agents(forward, model, environments, include_stay_still=True):
                     True
                     if action_taken[prev_g, prev_a]
                     else np.random.randint(model.hyper["n_x"])
-                    == torch.argmax(step.x[env_i]).numpy()
+                    == torch.argmax(step.x[env_i]).cpu().numpy()
                 )
             )
             # Update the previous action as taken
@@ -429,8 +431,8 @@ def rate_map(forward, model, environments):
             # Run through frequency modules and append the firing rates to the correct
             # location list
             for f in range(model.hyper["n_f"]):
-                g[f][step.g[env_i]["id"]].append(step.g_inf[f][env_i].detach().numpy())
-                p[f][step.g[env_i]["id"]].append(step.p_inf[f][env_i].detach().numpy())
+                g[f][step.g[env_i]["id"]].append(step.g_inf[f][env_i].detach().cpu().numpy())
+                p[f][step.g[env_i]["id"]].append(step.p_inf[f][env_i].detach().cpu().numpy())
         # Now average across location visits to get a single represenation vector for
         # each location for each frequency
         for cells, n_cells in zip([p, g], [model.hyper["n_p"], model.hyper["n_g"]]):

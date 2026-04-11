@@ -36,6 +36,7 @@ import os
 import pickle
 
 import numpy as np
+import torch
 
 from neuralplayground.agents.whittington_2020 import Whittington2020
 from neuralplayground.agents.whittington_2020_extras import (
@@ -44,6 +45,20 @@ from neuralplayground.agents.whittington_2020_extras import (
 from neuralplayground.arenas import BatchEnvironment, DiscreteObjectEnvironment
 from neuralplayground.backend import SingleSim, tem_training_loop
 from neuralplayground.experiments import Sargolini2006Data
+
+# =============================================================================
+# Device selection
+# =============================================================================
+# Priority: CUDA GPU → Apple Silicon MPS → CPU.
+# Override by passing device="cpu" (or "cuda:1" etc.) explicitly in
+# agent_params below.
+if torch.cuda.is_available():
+    DEVICE = "cuda"
+elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+    DEVICE = "mps"
+else:
+    DEVICE = "cpu"
+print(f"Using device: {DEVICE}")
 
 # =============================================================================
 # Experiment hyper-parameters
@@ -117,6 +132,9 @@ agent_params = {
     "room_depths": room_depths,
     "state_densities": [discrete_env_params["state_density"]] * env_params["batch_size"],
     "use_behavioural_data": False,
+    # GPU support: passed through to Whittington2020.__init__ → Model.__init__.
+    # Remove or set to "cpu" to force CPU regardless of hardware.
+    "device": DEVICE,
 }
 
 # =============================================================================

@@ -143,14 +143,14 @@ def downsample(value, target_dim):
     edges = np.append(
         np.round(np.arange(0, value_dim, float(value_dim) / target_dim)), value_dim
     ).astype(int)
-    # Create downsampling matrix
-    downsample = torch.zeros((value_dim, target_dim), dtype=torch.float)
+    # Create downsampling matrix on the same device as the input tensor.
+    # A plain Python float scalar is assigned to each slice, which avoids
+    # creating intermediate CPU tensors and works transparently on GPU.
+    downsample = torch.zeros((value_dim, target_dim), dtype=torch.float, device=value.device)
     # Fill downsampling matrix with chunks
     for curr_entry in range(target_dim):
         downsample[edges[curr_entry] : edges[curr_entry + 1], curr_entry] = (
-            torch.tensor(
-                1.0 / (edges[curr_entry + 1] - edges[curr_entry]), dtype=torch.float
-            )
+            1.0 / (edges[curr_entry + 1] - edges[curr_entry])
         )
     # Do downsampling by matrix multiplication
     return torch.matmul(value, downsample)
