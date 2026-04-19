@@ -187,8 +187,22 @@ def parameters():
     params["n_x"] = 45
     # Neurons for compressed sensory experience x_c
     params["n_x_c"] = 10
-    # Neurons for temporally filtered sensory experience x for each frequency
-    params["n_x_f"] = [params["n_x_c"] for _ in range(params["n_f"])]
+    # TD (temporal difference) reward learning parameters
+    # Number of reward-signal dimensions appended to the compressed observation.
+    # Setting this to 1 extends each frequency module's sensory representation by
+    # one channel that carries the normalised TD value V(s), allowing the place-cell
+    # memory to encode both sensory context AND reward proximity.
+    params["n_td_reward"] = 1
+    # Discount factor for TD(0) value-function updates (higher = longer horizon)
+    params["td_gamma"] = 0.95
+    # Step-size for TD(0) updates of the value table V(s)
+    params["td_alpha"] = 0.1
+    # How strongly the average TD value scales the model learning rate.
+    # Effective lr = base_lr * (1 + td_lr_scale * mean_value_normalised)
+    params["td_lr_scale"] = 2.0
+    # Neurons for temporally filtered sensory experience x for each frequency.
+    # Includes one extra channel per frequency module for the TD reward signal.
+    params["n_x_f"] = [params["n_x_c"] + params["n_td_reward"] for _ in range(params["n_f"])]
     # Neurons for hippocampal grounded location p for each frequency
     params["n_p"] = [g * x for g, x in zip(params["n_g_subsampled"], params["n_x_f"])]
     # Initial frequencies of each module. For ease of interpretation (higher number =

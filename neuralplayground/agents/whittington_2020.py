@@ -270,21 +270,45 @@ class Whittington2020(AgentCore):
         self.tem.hyper["lambda"] = self.lambda_new
         # Update scaling of offset for variance of inferred grounded position
         self.tem.hyper["p2g_scale_offset"] = self.p2g_scale_offset
-        # Update learning rate (the neater torch-way of doing this would be a scheduler,
-        # but this is quick and easy)
+
+        # --- TD reward learning ---
+        n_td = self.pars.get("n_td_reward", 0)
+        if n_td > 0:
+            # Update value table with TD(0) for the current rollout
+            self._update_td_values(history)
+            # Scale learning rate: states with high discounted value get a larger
+            # gradient step, biasing learning towards reward-proximal transitions.
+            curr_values = np.array([
+                self.V_table[env_i, history[-1][env_i][0]]
+                for env_i in range(self.batch_size)
+            ])
+            norm_scale = 1.0 - self.pars.get("td_gamma", 0.95)
+            avg_norm_value = float(np.mean(curr_values) * norm_scale)
+            effective_lr = self.lr * (
+                1.0 + self.pars.get("td_lr_scale", 2.0) * avg_norm_value
+            )
+        else:
+            effective_lr = self.lr
+
         for param_group in self.adam.param_groups:
-            param_group["lr"] = self.lr
+            param_group["lr"] = effective_lr
+
+        # Build observation tensor, augmenting with the TD value signal
+        n_x = self.pars["n_x"]
+        n_rollout = self.pars["n_rollout"]
+        obs_array = np.reshape(observations, (n_rollout, self.batch_size, n_x))
+        if n_td > 0:
+            td_signals = self._get_td_signals(history)          # (n_rollout, batch, n_td)
+            obs_array = np.concatenate([obs_array, td_signals], axis=2)  # (n_rollout, batch, n_x+n_td)
 
         # Collect all information in walk variable
         model_input = [
             [
                 locations[i],
-                torch.from_numpy(np.reshape(observations, (20, 16, 45))[i]).type(
-                    torch.float32
-                ).to(self.device),
-                np.reshape(action_values, (20, 16))[i].tolist(),
+                torch.from_numpy(obs_array[i]).type(torch.float32).to(self.device),
+                np.reshape(action_values, (n_rollout, self.batch_size))[i].tolist(),
             ]
-            for i in range(self.pars["n_rollout"])
+            for i in range(n_rollout)
         ]
         self.final_model_input = model_input
 
@@ -353,6 +377,77 @@ class Whittington2020(AgentCore):
             for env in range(self.pars["batch_size"])
         ]
         self.prev_iter = None
+        # Initialise TD reward learning tables
+        self._init_td()
+
+    def _init_td(self):
+        """Initialise TD value table and reward-state locations.
+
+        Each environment gets one reward state, placed at the centre of its
+        discrete state space.  The value table V[env, state] starts at zero
+        and is updated by TD(0) during training.
+        """
+        max_states = max(self.n_states)
+        self.V_table = np.zeros((self.batch_size, max_states), dtype=np.float32)
+        # Place reward at the centre state of every environment
+        self.reward_states = [n // 2 for n in self.n_states]
+
+    def _update_td_values(self, history):
+        """Run one sweep of TD(0) updates over the current rollout.
+
+        For every consecutive (s, s') pair in the rollout, the update is:
+            V[s] += alpha * (r + gamma * V[s'] - V[s])
+        where r = 1 when s is the reward state for that environment, else 0.
+        The last step uses r - V[s] as the TD error (treating the episode as
+        potentially terminal at the end of the rollout).
+
+        Parameters
+        ----------
+        history : list[list]
+            obs_history slice of length n_rollout.
+            history[step][env] = [state_id, obs_array, position, ...].
+        """
+        gamma = self.pars.get("td_gamma", 0.95)
+        alpha = self.pars.get("td_alpha", 0.1)
+        n_steps = len(history)
+        for step_i in range(n_steps - 1):
+            for env_i in range(self.batch_size):
+                s = history[step_i][env_i][0]
+                s_next = history[step_i + 1][env_i][0]
+                r = 1.0 if s == self.reward_states[env_i] else 0.0
+                td_err = r + gamma * self.V_table[env_i, s_next] - self.V_table[env_i, s]
+                self.V_table[env_i, s] += alpha * td_err
+        # Final step in rollout — no known successor, treat as soft terminal
+        for env_i in range(self.batch_size):
+            s = history[-1][env_i][0]
+            r = 1.0 if s == self.reward_states[env_i] else 0.0
+            self.V_table[env_i, s] += alpha * (r - self.V_table[env_i, s])
+
+    def _get_td_signals(self, history):
+        """Return normalised TD values for every (step, env) in the rollout.
+
+        Values are scaled by (1 - gamma) so that the maximum discounted return
+        of 1/(1-gamma) maps to 1.0, keeping the reward channel in [0, 1].
+
+        Parameters
+        ----------
+        history : list[list]
+            obs_history slice of length n_rollout.
+
+        Returns
+        -------
+        td_signals : np.ndarray, shape (n_rollout, batch_size, n_td_reward)
+        """
+        n_steps = len(history)
+        n_td = self.pars.get("n_td_reward", 0)
+        scale = 1.0 - self.pars.get("td_gamma", 0.95)
+        td_signals = np.zeros((n_steps, self.batch_size, n_td), dtype=np.float32)
+        for step_i in range(n_steps):
+            for env_i in range(self.batch_size):
+                s = history[step_i][env_i][0]
+                v = self.V_table[env_i, s]
+                td_signals[step_i, env_i, 0] = float(np.clip(v * scale, 0.0, 1.0))
+        return td_signals
 
     def save_agent(self, save_path: str):
         """Save current state and information in general to re-instantiate the
@@ -509,12 +604,18 @@ class Whittington2020(AgentCore):
         actions = self.walk_actions[-self.n_walk :]
         action_values = self.step_to_actions(actions)
 
+        n_x = self.pars["n_x"]
+        n_td = self.pars.get("n_td_reward", 0)
+        obs_arr = np.reshape(observations, (self.n_walk, 16, n_x))
+        if n_td > 0:
+            # Pad reward channel with zeros for analysis trajectories
+            td_pad = np.zeros((self.n_walk, 16, n_td), dtype=np.float32)
+            obs_arr = np.concatenate([obs_arr, td_pad], axis=2)
+
         model_input = [
             [
                 locations[i],
-                torch.from_numpy(
-                    np.reshape(observations, (self.n_walk, 16, 45))[i]
-                ).type(torch.float32),
+                torch.from_numpy(obs_arr[i]).type(torch.float32),
                 np.reshape(action_values, (self.n_walk, 16))[i].tolist(),
             ]
             for i in range(self.n_walk)

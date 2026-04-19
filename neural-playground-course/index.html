@@ -36,6 +36,7 @@
         <button class="nav-dot" data-target="module-4" data-tooltip="How Neurons Learn Space" role="tab" aria-label="Module 4: How Neurons Learn Space"></button>
         <button class="nav-dot" data-target="module-5" data-tooltip="Real Rat Data" role="tab" aria-label="Module 5: Real Rat Data"></button>
         <button class="nav-dot" data-target="module-6" data-tooltip="Science at Scale" role="tab" aria-label="Module 6: Science at Scale"></button>
+        <button class="nav-dot" data-target="module-7" data-tooltip="Teaching the TEM to Want" role="tab" aria-label="Module 7: Teaching the TEM to Want"></button>
       </div>
     </div>
   </nav>
@@ -2283,6 +2284,362 @@
 
     </div>
   </div>
+</section>
+<section class="module" id="module-7" style="background: var(--color-bg-warm)">
+  <div class="module-content">
+
+    <header class="module-header animate-in">
+      <span class="module-number">07</span>
+      <h1 class="module-title">Teaching the TEM to Want</h1>
+      <p class="module-subtitle">How we bolted a reward signal onto an unsupervised brain model — and what changed inside the network</p>
+    </header>
+
+    <div class="module-body">
+
+      <!-- ── SCREEN 1: The Problem ───────────────────────────── -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">An Agent That Does Not Care</h2>
+        <p>
+          The original
+          <span class="term" data-definition="Tolman-Eichenbaum Machine — a neural network that learns to navigate environments by building an internal map of space (grid cells) and sensory experiences (place cells), without any reward signal.">TEM</span>
+          is purely unsupervised. It explores, it builds an internal map, it learns to predict what it will see next.
+          But it has no goal. Every location is equally interesting. Every step is equally worth learning from.
+        </p>
+        <p>
+          Real brains do not work this way. Hippocampal place cells fire more reliably near reward locations.
+          Grid cell firing fields distort around goals. The dopamine system broadcasts a reward-prediction error that scales how strongly
+          any given experience is consolidated into memory. The question is:
+          <em>can we add this to TEM without rebuilding it from scratch?</em>
+        </p>
+
+        <div class="callout callout-accent animate-in">
+          <div class="callout-icon">🎯</div>
+          <div class="callout-content">
+            <strong class="callout-title">The Design Constraint</strong>
+            <p>
+              TEM is a large, carefully tuned unsupervised learner. The goal is to add reward sensitivity
+              <em>on top</em> of it — a thin RL layer — without touching the core generative model or
+              breaking the existing Hebbian memory dynamics. Three things need to change:
+              the observation must carry the reward signal, the learning rate must respond to value,
+              and value must propagate backwards from the reward location.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── SCREEN 2: TD Learning ───────────────────────────── -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">TD(0): The Simplest Reward Propagator</h2>
+        <p>
+          <span class="term" data-definition="Temporal Difference learning — a family of algorithms that update value estimates based on the difference between successive predictions, rather than waiting for the episode to end. TD(0) uses only one step of lookahead.">TD(0)</span>
+          maintains a table V where V[s] estimates the total future reward the agent expects to collect
+          starting from state s. Every time the agent transitions from state s to state s', the estimate is nudged:
+        </p>
+
+        <div style="background: var(--color-bg); border-radius: var(--radius-lg); padding: var(--space-4); margin: var(--space-4) 0; font-family: var(--font-mono); font-size: var(--text-sm); border-left: 4px solid var(--color-actor-4);">
+          <strong style="color: var(--color-actor-4);">TD(0) update rule</strong><br><br>
+          <code>error = r + γ · V[s'] − V[s]</code><br>
+          <code>V[s]  = V[s] + α · error</code><br><br>
+          <span style="font-family: var(--font-sans); color: var(--color-text-muted); font-size: 0.9em;">
+            r = reward at s (1 if reward state, else 0) &nbsp;|&nbsp;
+            γ = discount (0.95) &nbsp;|&nbsp;
+            α = step-size (0.1)
+          </span>
+        </div>
+
+        <p>
+          The critical insight: V values near the reward state are updated first, then over many rollouts
+          the non-zero values propagate outward like ripples — states two steps from reward eventually
+          get V ≈ γ², states three steps get V ≈ γ³, and so on.
+          This is "backwards propagation" through the state space, implemented without any gradient or
+          explicit graph traversal.
+        </p>
+
+        <div class="translation-block animate-in">
+          <div class="translation-code">
+            <span class="translation-label">CODE — agents/whittington_2020.py · _update_td_values()</span>
+            <pre><code><span class="code-line"><span class="code-keyword">for</span> step_i <span class="code-keyword">in</span> <span class="code-function">range</span>(n_steps <span class="code-operator">-</span> 1):</span>
+<span class="code-line">    <span class="code-keyword">for</span> env_i <span class="code-keyword">in</span> <span class="code-function">range</span>(<span class="code-property">self</span>.<span class="code-property">batch_size</span>):</span>
+<span class="code-line">        s      <span class="code-operator">=</span> history[step_i][env_i][0]</span>
+<span class="code-line">        s_next <span class="code-operator">=</span> history[step_i <span class="code-operator">+</span> 1][env_i][0]</span>
+<span class="code-line">        r      <span class="code-operator">=</span> 1.0 <span class="code-keyword">if</span> s <span class="code-operator">==</span> <span class="code-property">self</span>.<span class="code-property">reward_states</span>[env_i] <span class="code-keyword">else</span> 0.0</span>
+<span class="code-line">        td_err <span class="code-operator">=</span> r <span class="code-operator">+</span> gamma <span class="code-operator">*</span> <span class="code-property">self</span>.<span class="code-property">V_table</span>[env_i, s_next] <span class="code-operator">-</span> <span class="code-property">self</span>.<span class="code-property">V_table</span>[env_i, s]</span>
+<span class="code-line">        <span class="code-property">self</span>.<span class="code-property">V_table</span>[env_i, s] <span class="code-operator">+=</span> alpha <span class="code-operator">*</span> td_err</span></code></pre>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">PLAIN ENGLISH</span>
+            <div class="translation-lines">
+              <p class="tl"><code style="font-family: var(--font-mono); font-size: 0.85em;">for step_i in range(n_steps - 1)</code> — Loop over every consecutive pair of timesteps in the 20-step rollout</p>
+              <p class="tl"><code style="font-family: var(--font-mono); font-size: 0.85em;">s = history[step_i][env_i][0]</code> — The current state ID for environment env_i at this step</p>
+              <p class="tl"><code style="font-family: var(--font-mono); font-size: 0.85em;">r = 1.0 if s == self.reward_states[env_i]</code> — Is this the reward location? If yes, r=1. If no, r=0. There is one reward per grid, placed at the centre state.</p>
+              <p class="tl"><code style="font-family: var(--font-mono); font-size: 0.85em;">td_err = r + gamma * V[s_next] - V[s]</code> — The surprise: how much better (or worse) was reality than our prediction? Positive error → V[s] was too low. Negative → too high.</p>
+              <p class="tl"><code style="font-family: var(--font-mono); font-size: 0.85em;">V[s] += alpha * td_err</code> — Nudge the estimate in the right direction by a small step. After thousands of rollouts, V[s] converges to the true discounted return from s.</p>
+            </div>
+          </div>
+        </div>
+
+        <div style="background: var(--color-bg); border-radius: var(--radius-lg); padding: var(--space-4); margin-top: var(--space-4); border: 1px solid var(--color-border);">
+          <h4 style="margin: 0 0 var(--space-3); color: var(--color-text);">Where does the reward state live?</h4>
+          <p style="margin: 0; font-size: var(--text-sm);">
+            Each environment gets one reward state, initialised in <code style="font-family: var(--font-mono); font-size: 0.9em;">_init_td()</code>
+            as <code style="font-family: var(--font-mono); font-size: 0.9em;">n_states // 2</code> — the centre of the discrete state space.
+            Because TEM trains on 16 environments simultaneously, there are 16 independent value tables and 16 independent reward locations.
+            The agent never teleports to the reward; it must walk there and accumulate experience, just like a real rat.
+          </p>
+        </div>
+      </section>
+
+      <!-- ── SCREEN 3: Reward in the Observation ────────────── -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">The Reward Channel: Extending X</h2>
+        <p>
+          The original TEM receives a
+          <span class="term" data-definition="A vector where every element is 0 except one, which is 1. Used to represent discrete categories — here, which of 45 possible sensory objects the agent currently sees.">one-hot</span>
+          observation X of shape <code style="font-family: var(--font-mono);">(batch, 45)</code>.
+          To let the network encode reward proximity, we append one extra dimension: the normalised TD value V(s),
+          scaled so the maximum possible discounted return maps to 1.0.
+        </p>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: var(--space-3); margin: var(--space-4) 0;">
+          <div style="background: var(--color-bg); border-radius: var(--radius-lg); padding: var(--space-3); text-align: center; border: 1px solid var(--color-border);">
+            <div style="font-family: var(--font-mono); font-size: var(--text-lg); color: var(--color-actor-2); font-weight: 700;">45 dims</div>
+            <div style="font-size: var(--text-sm); color: var(--color-text-muted); margin-top: var(--space-1);">one-hot sensory obs<br>(unchanged)</div>
+          </div>
+          <div style="background: var(--color-bg); border-radius: var(--radius-lg); padding: var(--space-3); text-align: center; border: 2px solid var(--color-actor-4);">
+            <div style="font-family: var(--font-mono); font-size: var(--text-lg); color: var(--color-actor-4); font-weight: 700;">+1 dim</div>
+            <div style="font-size: var(--text-sm); color: var(--color-text-muted); margin-top: var(--space-1);">normalised V(s)<br><em>new reward channel</em></div>
+          </div>
+          <div style="background: var(--color-bg); border-radius: var(--radius-lg); padding: var(--space-3); text-align: center; border: 1px solid var(--color-border);">
+            <div style="font-family: var(--font-mono); font-size: var(--text-lg); color: var(--color-text); font-weight: 700;">= 46 dims</div>
+            <div style="font-size: var(--text-sm); color: var(--color-text-muted); margin-top: var(--space-1);">full augmented<br>observation</div>
+          </div>
+        </div>
+
+        <p>
+          The 46-dim vector enters the model's compression function <code style="font-family: var(--font-mono);">f_c()</code>.
+          That function splits it: the first 45 dims go through the original
+          <span class="term" data-definition="A compact binary code where exactly two bits are set to 1 and the rest are 0. TEM uses this to represent each of 45 possible sensory observations in just 10 bits instead of 45, making the representation more efficient.">two-hot lookup table</span>
+          (producing a 10-bit code), while the reward dim is appended directly, yielding an 11-dim compressed vector.
+          Every subsequent operation in the model — temporal filtering, memory lookup, place-cell formation — now
+          operates on this 11-dim representation, meaning reward proximity is literally woven into the
+          <span class="term" data-definition="Neurons in the hippocampus that fire when the animal is at a specific location. In TEM, place cells are represented as the outer product of grid-cell (abstract location) and sensory activity.">place-cell</span>
+          pattern at every location.
+        </p>
+
+        <div class="translation-block animate-in">
+          <div class="translation-code">
+            <span class="translation-label">CODE — whittington_2020_model.py · f_c()</span>
+            <pre><code><span class="code-line"><span class="code-keyword">def</span> <span class="code-function">f_c</span>(<span class="code-property">self</span>, <span class="code-property">decompressed</span>):</span>
+<span class="code-line">    n_reward <span class="code-operator">=</span> <span class="code-property">self</span>.<span class="code-property">hyper</span>.<span class="code-function">get</span>(<span class="code-string">"n_td_reward"</span>, 0)</span>
+<span class="code-line">    <span class="code-keyword">if</span> n_reward <span class="code-operator">&gt;</span> 0:</span>
+<span class="code-line">        obs_part    <span class="code-operator">=</span> decompressed[:, :<span class="code-operator">-</span>n_reward]</span>
+<span class="code-line">        reward_part <span class="code-operator">=</span> decompressed[:, <span class="code-operator">-</span>n_reward:]</span>
+<span class="code-line">        two_hot <span class="code-operator">=</span> torch.<span class="code-function">stack</span>(</span>
+<span class="code-line">            [<span class="code-property">self</span>.<span class="code-property">hyper</span>[<span class="code-string">"two_hot_table"</span>][i]</span>
+<span class="code-line">             <span class="code-keyword">for</span> i <span class="code-keyword">in</span> torch.<span class="code-function">argmax</span>(obs_part, dim<span class="code-operator">=</span>1)], dim<span class="code-operator">=</span>0</span>
+<span class="code-line">        ).<span class="code-function">to</span>(dtype<span class="code-operator">=</span>decompressed.dtype, device<span class="code-operator">=</span>decompressed.device)</span>
+<span class="code-line">        <span class="code-keyword">return</span> torch.<span class="code-function">cat</span>([two_hot, reward_part], dim<span class="code-operator">=</span>1)</span></code></pre>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">PLAIN ENGLISH</span>
+            <div class="translation-lines">
+              <p class="tl"><code style="font-family: var(--font-mono); font-size: 0.85em;">obs_part = decompressed[:, :-n_reward]</code> — Slice off the first 45 columns: the ordinary sensory one-hot observation</p>
+              <p class="tl"><code style="font-family: var(--font-mono); font-size: 0.85em;">reward_part = decompressed[:, -n_reward:]</code> — The last column: the normalised TD value for this state, between 0 and 1</p>
+              <p class="tl"><code style="font-family: var(--font-mono); font-size: 0.85em;">two_hot = torch.stack([two_hot_table[argmax(obs)]...])</code> — Convert each row's one-hot observation to its 10-bit two-hot code, exactly as before</p>
+              <p class="tl"><code style="font-family: var(--font-mono); font-size: 0.85em;">return torch.cat([two_hot, reward_part], dim=1)</code> — Glue the 10-bit sensory code and 1-bit reward channel together into an 11-dim vector. This is what all downstream memory operations will see.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="callout callout-accent animate-in">
+          <div class="callout-icon">🔗</div>
+          <div class="callout-content">
+            <strong class="callout-title">Why the Loss Function Also Changed</strong>
+            <p>
+              The TEM loss computes cross-entropy between predicted observations and the true observation label.
+              That label comes from <code style="font-family: var(--font-mono); font-size: 0.9em;">argmax(x)</code>.
+              With X now being 46-dim, argmax could accidentally pick index 45 (the reward channel) if its
+              value happened to be the largest. To prevent this, the loss now masks: <code style="font-family: var(--font-mono); font-size: 0.9em;">argmax(x[:, :45])</code>.
+              The model predicts sensory observations only; the reward channel is not a prediction target.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── SCREEN 4: LR Scaling ────────────────────────────── -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Value-Scaled Learning Rate</h2>
+        <p>
+          Knowing that a location is near reward is useful — but the TEM's unsupervised losses treat all
+          visited states identically. To make the network consolidate reward-proximal experiences more strongly,
+          the learning rate passed to the
+          <span class="term" data-definition="Adam (Adaptive Moment Estimation) — an optimiser that tracks a running average of gradients and their squared values to adapt the learning rate separately for each parameter. Widely used for training neural networks.">Adam optimiser</span>
+          is scaled by the current batch's average TD value:
+        </p>
+
+        <div style="background: var(--color-bg); border-radius: var(--radius-lg); padding: var(--space-4); margin: var(--space-4) 0; font-family: var(--font-mono); font-size: var(--text-sm); border-left: 4px solid var(--color-actor-2);">
+          <strong style="color: var(--color-actor-2);">Effective learning rate</strong><br><br>
+          <code>eff_lr = base_lr × (1 + td_lr_scale × mean_V_normalised)</code><br><br>
+          <span style="font-family: var(--font-sans); color: var(--color-text-muted); font-size: 0.9em;">
+            base_lr = scheduled rate (decays over training) &nbsp;|&nbsp;
+            td_lr_scale = 2.0 &nbsp;|&nbsp;
+            mean_V_normalised = mean(V_current_states) × (1 − γ)
+          </span>
+        </div>
+
+        <p>
+          At the start of training V is everywhere zero, so the effective rate equals the base rate — no change.
+          As values build up near the reward, rollouts that happen to pass through high-value states get a
+          larger gradient step. The multiplier is bounded: at maximum value (1.0 normalised), the rate is
+          tripled (1 + 2.0 × 1.0 = 3). This is intentional — rare, valuable experiences should be
+          consolidated more strongly.
+        </p>
+
+        <div class="translation-block animate-in">
+          <div class="translation-code">
+            <span class="translation-label">CODE — agents/whittington_2020.py · update()</span>
+            <pre><code><span class="code-line">curr_values <span class="code-operator">=</span> np.<span class="code-function">array</span>([</span>
+<span class="code-line">    <span class="code-property">self</span>.<span class="code-property">V_table</span>[env_i, history[<span class="code-operator">-</span>1][env_i][0]]</span>
+<span class="code-line">    <span class="code-keyword">for</span> env_i <span class="code-keyword">in</span> <span class="code-function">range</span>(<span class="code-property">self</span>.<span class="code-property">batch_size</span>)</span>
+<span class="code-line">])</span>
+<span class="code-line">norm_scale    <span class="code-operator">=</span> 1.0 <span class="code-operator">-</span> <span class="code-property">self</span>.<span class="code-property">pars</span>.<span class="code-function">get</span>(<span class="code-string">"td_gamma"</span>, 0.95)</span>
+<span class="code-line">avg_norm_value <span class="code-operator">=</span> <span class="code-function">float</span>(np.<span class="code-function">mean</span>(curr_values) <span class="code-operator">*</span> norm_scale)</span>
+<span class="code-line">effective_lr  <span class="code-operator">=</span> <span class="code-property">self</span>.<span class="code-property">lr</span> <span class="code-operator">*</span> (</span>
+<span class="code-line">    1.0 <span class="code-operator">+</span> <span class="code-property">self</span>.<span class="code-property">pars</span>.<span class="code-function">get</span>(<span class="code-string">"td_lr_scale"</span>, 2.0) <span class="code-operator">*</span> avg_norm_value</span>
+<span class="code-line">)</span></code></pre>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">PLAIN ENGLISH</span>
+            <div class="translation-lines">
+              <p class="tl"><code style="font-family: var(--font-mono); font-size: 0.85em;">curr_values = np.array([V_table[env_i, last_state] ...])</code> — Collect the raw TD values for the final state of each environment in the batch — these are the most recently visited states</p>
+              <p class="tl"><code style="font-family: var(--font-mono); font-size: 0.85em;">norm_scale = 1.0 - td_gamma</code> — Multiply by (1 − γ) = 0.05. This scales the maximum possible value (1/(1−γ) ≈ 20) back down to 1.0, giving a normalised signal in [0, 1]</p>
+              <p class="tl"><code style="font-family: var(--font-mono); font-size: 0.85em;">avg_norm_value = mean(curr_values) * norm_scale</code> — Average across the 16 environments to get one scalar signal. High = the batch spent time near reward.</p>
+              <p class="tl"><code style="font-family: var(--font-mono); font-size: 0.85em;">effective_lr = lr * (1 + td_lr_scale * avg_norm_value)</code> — Scale the scheduled learning rate up. At zero value → no change. At full value → 3× the base rate.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── SCREEN 5: Architecture Impact ──────────────────── -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">What Actually Changed in the Network</h2>
+        <p>
+          Adding one reward dimension to the compressed observation cascades through TEM's architecture.
+          Understanding the cascade requires knowing how the network's internal dimensions are related.
+        </p>
+
+        <div class="info-grid animate-in" style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); margin-top: var(--space-4);">
+          <div style="background: var(--color-bg); border-radius: var(--radius-lg); padding: var(--space-4); border-top: 3px solid var(--color-actor-2);">
+            <h4 style="margin: 0 0 var(--space-3); color: var(--color-actor-2); font-family: var(--font-mono);">Before</h4>
+            <ul style="margin: 0; padding-left: var(--space-4); font-size: var(--text-sm); line-height: 2;">
+              <li>n_x = 45 &nbsp;(one-hot observation)</li>
+              <li>n_x_c = 10 &nbsp;(two-hot bits)</li>
+              <li>n_x_f = 10 &nbsp;(per-frequency filtered obs)</li>
+              <li>n_p = n_g_sub × 10 &nbsp;(place cells)</li>
+              <li>sum(n_p) = 400 &nbsp;(total place cells)</li>
+              <li>M shape = (batch, 400, 400)</li>
+            </ul>
+          </div>
+          <div style="background: var(--color-bg); border-radius: var(--radius-lg); padding: var(--space-4); border-top: 3px solid var(--color-actor-4);">
+            <h4 style="margin: 0 0 var(--space-3); color: var(--color-actor-4); font-family: var(--font-mono);">After (+TD)</h4>
+            <ul style="margin: 0; padding-left: var(--space-4); font-size: var(--text-sm); line-height: 2;">
+              <li>n_x = 45 &nbsp;<em>(unchanged)</em></li>
+              <li>n_x_c = 10 &nbsp;<em>(unchanged)</em></li>
+              <li>n_x_f = 11 &nbsp;<span style="color: var(--color-actor-4);">↑ +1 reward dim</span></li>
+              <li>n_p = n_g_sub × 11 &nbsp;<span style="color: var(--color-actor-4);">↑ larger</span></li>
+              <li>sum(n_p) = 440 &nbsp;<span style="color: var(--color-actor-4);">↑ +40 cells</span></li>
+              <li>M shape = (batch, 440, 440) &nbsp;<span style="color: var(--color-actor-4);">↑ larger memory</span></li>
+            </ul>
+          </div>
+        </div>
+
+        <p style="margin-top: var(--space-4);">
+          The change flows automatically from one line in
+          <code style="font-family: var(--font-mono);">whittington_2020_parameters.py</code>:
+          <code style="font-family: var(--font-mono);">n_x_f = n_x_c + n_td_reward</code>.
+          Because every downstream dimension (<code style="font-family: var(--font-mono);">n_p</code>,
+          <code style="font-family: var(--font-mono);">W_tile</code>,
+          <code style="font-family: var(--font-mono);">W_repeat</code>,
+          <code style="font-family: var(--font-mono);">p_update_mask</code>) is computed from
+          <code style="font-family: var(--font-mono);">n_x_f</code>, they all resize without further edits.
+          The
+          <span class="term" data-definition="The two-hot lookup table that maps each of the 45 possible sensory observations to a 10-bit binary code. One of the most important precomputed structures in TEM.">two-hot table</span>
+          itself is unchanged — it still maps 45 observations to 10-bit codes.
+          The reward channel bypasses that table entirely, joining the representation after compression.
+        </p>
+
+        <div class="callout callout-accent animate-in">
+          <div class="callout-icon">🧩</div>
+          <div class="callout-content">
+            <strong class="callout-title">What the Larger Memory Means</strong>
+            <p>
+              Each
+              <span class="term" data-definition="Hippocampal place cell — fires at a specific location. In TEM, represented as the outer product of grid-cell activity (abstract location) and sensory activity, stored in the Hebbian memory matrix M.">place cell</span>
+              is the outer product of a grid-cell code (abstract location) and the compressed sensory+reward vector.
+              With 11-dim sensory+reward instead of 10-dim sensory, the outer product grows proportionally.
+              The memory matrix M is now large enough to bind "where I am" to "what I see AND how much reward is here."
+              In principle, the model can retrieve reward proximity purely from its internal map — without being explicitly told the reward location at inference time.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── SCREEN 6: Summary ───────────────────────────────── -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Three Changes, One Behaviour</h2>
+        <p>
+          The full TD modification touches exactly three files and introduces exactly four new parameters.
+          Here is the complete picture:
+        </p>
+
+        <div style="display: grid; grid-template-columns: 1fr; gap: var(--space-3); margin: var(--space-4) 0;">
+
+          <div style="background: var(--color-bg); border-radius: var(--radius-lg); padding: var(--space-4); border-left: 4px solid var(--color-actor-2);">
+            <h4 style="margin: 0 0 var(--space-2); font-family: var(--font-mono); color: var(--color-actor-2);">whittington_2020_parameters.py</h4>
+            <p style="margin: 0; font-size: var(--text-sm);">
+              Adds <code style="font-family: var(--font-mono);">n_td_reward=1</code>, <code style="font-family: var(--font-mono);">td_gamma=0.95</code>,
+              <code style="font-family: var(--font-mono);">td_alpha=0.1</code>, <code style="font-family: var(--font-mono);">td_lr_scale=2.0</code>.
+              Changes <code style="font-family: var(--font-mono);">n_x_f</code> from <code style="font-family: var(--font-mono);">n_x_c</code> to
+              <code style="font-family: var(--font-mono);">n_x_c + n_td_reward</code>.
+              All downstream dimensions cascade automatically.
+            </p>
+          </div>
+
+          <div style="background: var(--color-bg); border-radius: var(--radius-lg); padding: var(--space-4); border-left: 4px solid var(--color-actor-3);">
+            <h4 style="margin: 0 0 var(--space-2); font-family: var(--font-mono); color: var(--color-actor-3);">whittington_2020_model.py</h4>
+            <p style="margin: 0; font-size: var(--text-sm);">
+              Three surgical edits: <strong>f_c()</strong> splits the 46-dim input to route obs through two-hot and append the reward channel;
+              <strong>b_x</strong> is resized from <code style="font-family: var(--font-mono);">n_x_c</code> to <code style="font-family: var(--font-mono);">n_x_f[0]</code>
+              to match the wider compressed representation;
+              <strong>loss()</strong> masks argmax to the first 45 dims so the reward channel does not corrupt prediction targets.
+            </p>
+          </div>
+
+          <div style="background: var(--color-bg); border-radius: var(--radius-lg); padding: var(--space-4); border-left: 4px solid var(--color-actor-4);">
+            <h4 style="margin: 0 0 var(--space-2); font-family: var(--font-mono); color: var(--color-actor-4);">whittington_2020.py (the agent wrapper)</h4>
+            <p style="margin: 0; font-size: var(--text-sm);">
+              Three new methods: <strong>_init_td()</strong> builds the value table and places one reward per environment;
+              <strong>_update_td_values()</strong> runs TD(0) over every rollout;
+              <strong>_get_td_signals()</strong> returns normalised values to append to X.
+              The existing <strong>update()</strong> method is extended to call all three and to scale the Adam learning rate by the current batch value.
+            </p>
+          </div>
+        </div>
+
+        <div style="background: var(--color-bg); border-radius: var(--radius-lg); padding: var(--space-4); margin-top: var(--space-4); border: 1px solid var(--color-border);">
+          <h4 style="margin: 0 0 var(--space-3); color: var(--color-text);">What you can experiment with</h4>
+          <ul style="margin: 0; padding-left: var(--space-4); font-size: var(--text-sm); line-height: 2;">
+            <li><strong>td_gamma</strong> — Lower it (e.g. 0.5) for a short-horizon agent that only values nearby reward; raise it toward 1.0 for a long-horizon planner.</li>
+            <li><strong>td_alpha</strong> — The step-size for value updates. Higher values converge faster but can oscillate.</li>
+            <li><strong>td_lr_scale</strong> — Controls how much the model's learning rate amplifies near reward. Set to 0.0 to disable LR scaling while keeping the reward channel in X.</li>
+            <li><strong>reward_states</strong> — Currently set to n_states // 2 (arena centre). Change <code style="font-family: var(--font-mono);">_init_td()</code> to place rewards at corners, multiple locations, or different positions per environment.</li>
+            <li><strong>n_td_reward</strong> — Could be extended beyond 1 to encode richer reward signals (e.g. separate channels for different reward magnitudes).</li>
+          </ul>
+        </div>
+      </section>
+
+    </div><!-- /module-body -->
+  </div><!-- /module-content -->
 </section>
   </main>
 
