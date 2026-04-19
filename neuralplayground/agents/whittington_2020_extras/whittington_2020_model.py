@@ -806,7 +806,7 @@ class Model(torch.nn.Module):
             # by "summing over sensory
             # preferences" g = p * W_repeat^T
             g_downsampled = [
-                torch.matmul(p_x[f], torch.t(self.hyper["W_repeat"][f]))
+                torch.matmul(p_x[f], torch.t(self.hyper["W_repeat"][f].to(p_x[f].device)))
                 for f in range(self.hyper["n_f"])
             ]
             # Then use abstract location after summing over sensory preferences as input
@@ -991,12 +991,24 @@ class Model(torch.nn.Module):
         # Calculate factor for filtering from sigmoid of learned parameter
         alpha = [torch.nn.Sigmoid()(self.alpha[f]) for f in range(self.hyper["n_f"])]
         # Do exponential temporal filtering for each frequency modulemod
-        x = [
-            (1 - alpha[f]) * x_prev[f] + alpha[f] * x_c
-            for f in range(self.hyper["n_f"])
-        ]
-        return x
+        device = x_prev[0].device
 
+        alpha = [a.to(device) for a in alpha]
+
+        if isinstance(x_c, list):
+            x_c = [xc.to(device) for xc in x_c]
+            x = [
+                (1 - alpha[f]) * x_prev[f] + alpha[f] * x_c[f]
+                for f in range(self.hyper["n_f"])
+            ]
+        else:
+            x_c = x_c.to(device)
+            x = [
+                (1 - alpha[f]) * x_prev[f] + alpha[f] * x_c
+                for f in range(self.hyper["n_f"])
+            ]
+        return x
+        
     def x2x_(self, x):
         """Prepare sensory input for input to memory by weighting and
         normalisation for each frequency module.
@@ -1014,13 +1026,15 @@ class Model(torch.nn.Module):
         # each frequency module
         # Get normalised sensory input for each frequency module
         normalised = self.f_n(x)
+        # Get device from normalised data
+        device = normalised[0].device
         # Then reshape and reweight (use sigmoid to keep weight between 0 and 1) each
         # frequency module separately:
         #  matrix multiplication by W_tile prepares x for outer product with g by
         # element-wise multiplication
         x_ = [
             torch.nn.Sigmoid()(self.w_p[f])
-            * torch.matmul(normalised[f], self.hyper["W_tile"][f])
+            * torch.matmul(normalised[f], self.hyper["W_tile"][f].to(device))
             for f in range(self.hyper["n_f"])
         ]
         return x_
@@ -1044,7 +1058,7 @@ class Model(torch.nn.Module):
         downsampled = self.f_g(g)
         # Then reshape and reweight each frequency module separately
         g_ = [
-            torch.matmul(downsampled[f], self.hyper["W_repeat"][f])
+            torch.matmul(downsampled[f], self.hyper["W_repeat"][f].to(downsampled[f].device))
             for f in range(self.hyper["n_f"])
         ]
         return g_
@@ -1316,7 +1330,7 @@ class Model(torch.nn.Module):
         # g for each component of x. That's what the paper means when it says "sum over
         # entorhinal preferences".
         # It can be done with the transpose of W_tile
-        x = self.w_x * torch.matmul(p, torch.t(self.hyper["W_tile"][0])) + self.b_x
+        x = self.w_x * torch.matmul(p, torch.t(self.hyper["W_tile"][0].to(p.device))) + self.b_x
         # Then we need to decompress the temporally filtered sensory experience into a
         # single current experience prediction
         logits = self.f_c_star(x)
@@ -1391,7 +1405,7 @@ class Model(torch.nn.Module):
 
         """
         downsampled = [
-            torch.matmul(g[f], self.hyper["g_downsample"][f])
+            torch.matmul(g[f], self.hyper["g_downsample"][f].to(g[f].device))
             for f in range(self.hyper["n_f"])
         ]
         return downsampled
@@ -1461,6 +1475,8 @@ class Model(torch.nn.Module):
             if retrieve_it_mask is None
             else retrieve_it_mask
         )
+        # Move retrieve_it_mask to the same device as h_t
+        retrieve_it_mask = [mask.to(h_t.device) for mask in retrieve_it_mask]
         # Iterate attractor dynamics to do pattern completion
         for tau in range(self.hyper["i_attractor"]):
             # Apply one iteration of attractor dynamics, but only where there is a 1 in
@@ -1468,7 +1484,7 @@ class Model(torch.nn.Module):
             # entries have only one row, but are broadcasted to batch_size
             h_t = (1 - retrieve_it_mask[tau]) * h_t + retrieve_it_mask[tau] * (
                 self.f_p(
-                    self.hyper["kappa"] * h_t
+                    torch.tensor(self.hyper["kappa"], device=h_t.device) * h_t
                     + torch.squeeze(torch.matmul(torch.unsqueeze(h_t, 1), M))
                 )
             )
@@ -1514,11 +1530,11 @@ class Model(torch.nn.Module):
         # Multiply by connection vector, e.g. only keeping weights from low to high
         # frequencies for hierarchical retrieval
         if do_hierarchical_connections:
-            M_new = M_new * self.hyper["p_update_mask"]
+            M_new = M_new * torch.tensor(self.hyper["p_update_mask"], device=M_new.device)
         # Store grounded location in attractor network memory with weights M by Hebbian
         # learning of pattern
         M = torch.clamp(
-            self.hyper["lambda"] * M_prev + self.hyper["eta"] * M_new, min=-1, max=1
+            torch.tensor(self.hyper["lambda"], device=M_prev.device) * M_prev + torch.tensor(self.hyper["eta"], device=M_new.device) * M_new, min=-1, max=1
         )
         return M
 
