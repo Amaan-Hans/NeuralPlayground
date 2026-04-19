@@ -302,7 +302,7 @@ class Whittington2020(AgentCore):
             for env_i, env_visited in enumerate(self.visited):
                 if env_visited[step.g[env_i]["id"]]:
                     step_loss.append(
-                        loss_weights * torch.stack([i[env_i] for i in step.L])
+                        loss_weights.to(self.device) * torch.stack([i[env_i] for i in step.L])
                     )
                 else:
                     env_visited[step.g[env_i]["id"]] = True
@@ -375,8 +375,7 @@ class Whittington2020(AgentCore):
         script_dir = os.path.dirname(os.path.abspath(__file__))
         source_file_path = os.path.join(
             script_dir,
-            """../../neuralplayground/agents/whittington_2020_extras/
-            whittington_2020_model.py""",
+            "../../neuralplayground/agents/whittington_2020_extras/whittington_2020_model.py",
         )
         destination_folder = os.path.join(os.path.dirname(save_path))
         os.makedirs(destination_folder, exist_ok=True)

@@ -65,8 +65,8 @@ arena_y_limits = [
     [-5, 5],
 ]
 
-room_widths = [int(np.diff(arena_x_limits)[i]) for i in range(len(arena_x_limits))]
-room_depths = [int(np.diff(arena_y_limits)[i]) for i in range(len(arena_y_limits))]
+room_widths = [x[1] - x[0] for x in arena_x_limits]
+room_depths = [y[1] - y[0] for y in arena_y_limits]
 
 discrete_env_params = {
     "environment_name": "DiscreteObject",
