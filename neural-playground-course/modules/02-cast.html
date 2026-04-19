@@ -1,0 +1,430 @@
+<section class="module" id="module-2" style="background: var(--color-bg-warm)">
+  <div class="module-content">
+
+    <!-- ── HEADER ───────────────────────────────────────────────── -->
+    <header class="module-header animate-in">
+      <span class="module-number">02</span>
+      <h1 class="module-title">Meet the Cast</h1>
+      <p class="module-subtitle">The four actors in every NeuralPlayground simulation</p>
+    </header>
+
+    <div class="module-body">
+
+      <!-- ── SCREEN 1: OPENING HOOK ───────────────────────────── -->
+      <div class="screen">
+        <p class="animate-in" style="font-size: var(--text-lg); line-height: var(--leading-loose); color: var(--color-text);">
+          Every simulation has four players. Once you know their names and roles, you can tell an AI assistant exactly what to change and where — without getting lost in 5,000 lines of code.
+        </p>
+        <p class="animate-in" style="color: var(--color-text-secondary);">
+          Think of it as a stage play. There is a <strong>set</strong>, an <strong>actor</strong>, a <strong>script consultant</strong>, and a <strong>director</strong>. Each has exactly one job — and they can be swapped out without touching the others.
+        </p>
+      </div>
+
+      <!-- ── SCREEN 2: THE FOUR ACTORS (ICON ROWS) ────────────── -->
+      <div class="screen">
+        <h2 class="screen-heading animate-in">The Four Players</h2>
+        <div class="icon-rows stagger-children">
+
+          <div class="icon-row animate-in">
+            <div class="icon-circle" style="background: var(--color-actor-4)">🏟️</div>
+            <div>
+              <strong>Arena</strong> — <em>The set</em>
+              <p>The virtual environment the agent moves through: a square room, a real-world maze layout, or any geometry you define. It knows about walls, positions, and rewards.</p>
+            </div>
+          </div>
+
+          <div class="icon-row animate-in">
+            <div class="icon-circle" style="background: var(--color-actor-2)">🧠</div>
+            <div>
+              <strong>Agent</strong> — <em>The actor</em>
+              <p>The brain model — a computational theory of how neurons learn to navigate. Weber2018, Stachenfeld2018, or any new model you bring in. Must follow the <span class="term" data-definition="A blueprint that defines what methods a class MUST have, without implementing them — like a job contract that says 'you must be able to act() and update()' but leaves the details to each applicant">abstract class</span> contract.</p>
+            </div>
+          </div>
+
+          <div class="icon-row animate-in">
+            <div class="icon-circle" style="background: var(--color-actor-3)">🔬</div>
+            <div>
+              <strong>Experiment</strong> — <em>The script consultant</em>
+              <p>Real rat neural recordings from published papers. Hafting2008, Sargolini2006 — actual spike times and positions from real animals used as scientific ground truth.</p>
+            </div>
+          </div>
+
+          <div class="icon-row animate-in">
+            <div class="icon-circle" style="background: var(--color-actor-5)">🎬</div>
+            <div>
+              <strong>Backend</strong> — <em>The director</em>
+              <p>The orchestration layer that runs the training loop, coordinates the other three components, and logs results. It calls the shots so no one else has to.</p>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- ── SCREEN 3: FILE TREE ───────────────────────────────── -->
+      <div class="screen">
+        <h2 class="screen-heading animate-in">Where Each Player Lives in the Code</h2>
+        <p class="animate-in" style="color: var(--color-text-secondary);">
+          The folder structure mirrors the four-actor model exactly. Each concern has its own directory — find the right folder and you find the right file.
+        </p>
+
+        <div class="file-tree animate-in">
+          <div class="ft-folder open">
+            <span class="ft-name">neuralplayground/</span><span class="ft-desc">main package</span>
+            <div class="ft-children">
+
+              <div class="ft-folder" style="border-left: 3px solid var(--color-actor-2)">
+                <span class="ft-name" style="color: var(--color-actor-2)">agents/</span>
+                <span class="ft-desc">🧠 Brain models — AgentCore, Weber2018, Stachenfeld2018</span>
+              </div>
+
+              <div class="ft-folder" style="border-left: 3px solid var(--color-actor-4)">
+                <span class="ft-name" style="color: var(--color-actor-4)">arenas/</span>
+                <span class="ft-desc">🏟️ Virtual environments — Simple2D, Hafting2008Arena, Sargolini2006Arena</span>
+              </div>
+
+              <div class="ft-folder" style="border-left: 3px solid var(--color-actor-3)">
+                <span class="ft-name" style="color: var(--color-actor-3)">experiments/</span>
+                <span class="ft-desc">🔬 Real rat recordings — Hafting2008Data, Sargolini2006Data</span>
+              </div>
+
+              <div class="ft-folder" style="border-left: 3px solid var(--color-actor-5)">
+                <span class="ft-name" style="color: var(--color-actor-5)">backend/</span>
+                <span class="ft-desc">🎬 Training orchestration — training_loops, SimulationManager</span>
+              </div>
+
+              <div class="ft-folder">
+                <span class="ft-name">comparison/</span>
+                <span class="ft-desc">📐 Scientific metrics — GridScorer</span>
+              </div>
+
+              <div class="ft-folder">
+                <span class="ft-name">plotting/</span>
+                <span class="ft-desc">📊 Visualization utilities</span>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── SCREEN 4: SEPARATION OF CONCERNS CALLOUT ──────────── -->
+      <div class="screen">
+        <div class="callout callout-accent animate-in">
+          <div class="callout-icon">💡</div>
+          <div class="callout-content">
+            <strong class="callout-title">
+              <span class="term" data-definition="A design principle: each component does exactly one job. Arena handles space. Agent handles learning. When things break, you know exactly where to look.">Separation of Concerns</span>
+            </strong>
+            <p>This pattern — splitting responsibilities into focused roles — is the most important design principle in software. It is why you can swap Weber2018 for Stachenfeld2018 with one line of code, or drop in a brand-new arena without touching the brain model at all.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── SCREEN 5: CODE ↔ ENGLISH TRANSLATION ─────────────── -->
+      <div class="screen">
+        <h2 class="screen-heading animate-in">Reading the Agent Blueprint</h2>
+        <p class="animate-in" style="color: var(--color-text-secondary);">
+          Every brain model must follow the <code>AgentCore</code> contract. Using <span class="term" data-definition="When a new class borrows all the capabilities of an existing class and adds its own — like a child class that gets everything from its parent class for free">inheritance</span>, each model gets the shared scaffolding for free and only has to fill in its own logic for <code>act()</code> and <code>update()</code>.
+        </p>
+
+        <div class="translation-block animate-in">
+          <div class="translation-code">
+            <span class="translation-label">Python</span>
+<code><span class="code-line"><span class="code-keyword">class</span> <span class="code-function">AgentCore</span>(<span class="code-string">object</span>):</span>
+<span class="code-line">    <span class="code-comment">"""Abstract class for all EHC models.</span></span>
+<span class="code-line"></span>
+<span class="code-line">    <span class="code-comment">Attributes</span></span>
+<span class="code-line">    <span class="code-comment">----------</span></span>
+<span class="code-line">    <span class="code-property">agent_name</span> : <span class="code-string">str</span></span>
+<span class="code-line">    <span class="code-property">obs_history</span>: <span class="code-string">list</span></span>
+<span class="code-line">    <span class="code-property">global_steps</span>: <span class="code-string">int</span></span>
+<span class="code-line"></span>
+<span class="code-line">    <span class="code-comment">Methods</span></span>
+<span class="code-line">    <span class="code-comment">-------</span></span>
+<span class="code-line">    <span class="code-function">reset</span>(<span class="code-keyword">self</span>):</span>
+<span class="code-line">    <span class="code-function">act</span>(<span class="code-keyword">self</span>, <span class="code-property">obs</span>):</span>
+<span class="code-line">    <span class="code-function">update</span>(<span class="code-keyword">self</span>):</span>
+<span class="code-line">    <span class="code-function">save_agent</span>(<span class="code-keyword">self</span>, <span class="code-property">save_path</span>: <span class="code-string">str</span>,</span>
+<span class="code-line">               <span class="code-property">raw_object</span>: <span class="code-string">bool</span> <span class="code-operator">=</span> <span class="code-keyword">True</span>):</span>
+<span class="code-line">    <span class="code-function">restore_agent</span>(<span class="code-keyword">self</span>, <span class="code-property">save_path</span>: <span class="code-string">str</span>):</span>
+<span class="code-line">    <span class="code-comment">"""</span></span>
+</code>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">In plain English</span>
+            <div class="translation-lines">
+              <div class="tl"><strong><span class="term" data-definition="A blueprint that defines what methods a class MUST have, without implementing them — like a job contract that says 'you must be able to act() and update()' but leaves the details to each applicant">class AgentCore(object):</span></strong><br>This is the blueprint that ALL brain models must follow — like a job description every model must satisfy</div>
+              <div class="tl"><strong>agent_name : str</strong><br>A human-readable name for this specific model instance (e.g. <code>'Weber2018_run3'</code>)</div>
+              <div class="tl"><strong>obs_history: list</strong><br>A memory bank — stores the last 1,000 positions the agent visited</div>
+              <div class="tl"><strong>global_steps: int</strong><br>A counter tracking how many learning steps have happened</div>
+              <div class="tl"><strong>reset(self):</strong><br>Start fresh — wipe all learned weights, clear memory</div>
+              <div class="tl"><strong>act(self, obs):</strong><br>The decision function: given a position, return which direction to move</div>
+              <div class="tl"><strong>update(self):</strong><br>The learning function: adjust internal connections based on recent experience</div>
+              <div class="tl"><strong>save_agent(...):</strong><br>Snapshot the entire brain state to disk — so you can reload it later without retraining</div>
+            </div>
+          </div>
+        </div>
+
+        <p class="animate-in" style="color: var(--color-text-secondary); font-size: var(--text-sm);">
+          <em>agents/agent_core.py, lines 21–53.</em> The <span class="term" data-definition="Entorhinal-Hippocampal Circuit — the brain region this framework models, famous for containing place cells and grid cells">EHC</span> in the docstring refers to the Entorhinal-Hippocampal Circuit — the brain region every model here is trying to explain.
+        </p>
+      </div>
+
+      <!-- ── SCREEN 6: GROUP CHAT ANIMATION ────────────────────── -->
+      <div class="screen">
+        <h2 class="screen-heading animate-in">Watching a Simulation Run — Step by Step</h2>
+        <p class="animate-in" style="color: var(--color-text-secondary);">
+          Press <strong>Next Message</strong> to watch the four actors coordinate during a single training run. Notice how each actor responds only within its own domain.
+        </p>
+
+        <div class="chat-window animate-in" id="chat-module2">
+          <div class="chat-messages">
+
+            <!-- msg 0 -->
+            <div class="chat-message" data-msg="0" data-sender="backend" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-5)">B</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-5)">BACKEND</span>
+                <p>Time to run a simulation. Arena, set up the environment.</p>
+              </div>
+            </div>
+
+            <!-- msg 1 -->
+            <div class="chat-message" data-msg="1" data-sender="arena" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-4)">A</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-4)">ARENA</span>
+                <p>Ready. I have a 1m × 1m square room with walls and a random starting position.</p>
+              </div>
+            </div>
+
+            <!-- msg 2 -->
+            <div class="chat-message" data-msg="2" data-sender="backend" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-5)">B</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-5)">BACKEND</span>
+                <p>Agent, you are placed in the arena. First observation: position [0.12, -0.34]</p>
+              </div>
+            </div>
+
+            <!-- msg 3 -->
+            <div class="chat-message" data-msg="3" data-sender="agent" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-2)">Ag</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-2)">AGENT</span>
+                <p>Based on my current weights, I will move in direction [0.8, 0.2].</p>
+              </div>
+            </div>
+
+            <!-- msg 4 -->
+            <div class="chat-message" data-msg="4" data-sender="arena" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-4)">A</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-4)">ARENA</span>
+                <p>Movement executed. New position: [0.18, -0.26]. No walls crossed. Reward: 0.</p>
+              </div>
+            </div>
+
+            <!-- msg 5 -->
+            <div class="chat-message" data-msg="5" data-sender="agent" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-2)">Ag</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-2)">AGENT</span>
+                <p>Learning from this step. Updating my connection weights now.</p>
+              </div>
+            </div>
+
+            <!-- msg 6 -->
+            <div class="chat-message" data-msg="6" data-sender="backend" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-5)">B</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-5)">BACKEND</span>
+                <p>Step 1 of 20,000 complete. Logging result.</p>
+              </div>
+            </div>
+
+            <!-- msg 7 -->
+            <div class="chat-message" data-msg="7" data-sender="experiment" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-3)">E</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-3)">EXPERIMENT</span>
+                <p>When you are done, I will provide real rat data for comparison.</p>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- typing indicator -->
+          <div class="chat-typing" id="chat-module2-typing" style="display:none">
+            <div class="chat-avatar" id="chat-module2-typing-avatar">?</div>
+            <div class="chat-typing-dots">
+              <span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span>
+            </div>
+          </div>
+
+          <div class="chat-controls">
+            <button class="btn chat-next-btn">Next Message</button>
+            <button class="btn chat-all-btn">Play All</button>
+            <button class="btn chat-reset-btn">Replay</button>
+            <span class="chat-progress"></span>
+          </div>
+        </div>
+
+        <p class="animate-in" style="color: var(--color-text-secondary); font-size: var(--text-sm);">
+          The <span class="term" data-definition="The standard Python library for reinforcement learning environments (originally OpenAI Gym) — NeuralPlayground arenas follow its interface so any RL agent can work with them">gymnasium</span>-style interface means any RL-compatible agent can be dropped into any Arena without special wiring — because the contract is standardized.
+        </p>
+      </div>
+
+      <!-- ── SCREEN 7: QUIZ ─────────────────────────────────────── -->
+      <div class="screen">
+        <h2 class="screen-heading animate-in">Check Your Understanding</h2>
+        <p class="animate-in" style="color: var(--color-text-secondary);">
+          Three quick scenarios. Each one tests whether you can map a real task to the right component.
+        </p>
+
+        <div class="quiz-container animate-in" id="quiz-module2">
+
+          <!-- Q1 -->
+          <div class="quiz-question-block"
+               data-correct="b"
+               data-explanation-right="The agents/ folder contains all brain model implementations. Create a new class that inherits from AgentCore and implement act() and update() — the framework handles the rest."
+               data-explanation-wrong="The agents/ folder is where ALL brain models live. The arena, experiments, and backend are separate concerns.">
+            <p class="quiz-question">Q1 — A new paper describes a brain model using spiking neurons. Where in NeuralPlayground would you add it?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="a" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                Create a new file in <code>arenas/</code>
+              </button>
+              <button class="quiz-option" data-value="b" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                Create a new class in <code>agents/</code> that inherits from <code>AgentCore</code>
+              </button>
+              <button class="quiz-option" data-value="c" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                Add it to <code>backend/training_loops.py</code>
+              </button>
+              <button class="quiz-option" data-value="d" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                Modify <code>experiments/</code>
+              </button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <!-- Q2 -->
+          <div class="quiz-question-block"
+               data-correct="c"
+               data-explanation-right="The Arena defines the physical space. Create a ConnectedRooms-style Arena (or a fresh subclass) that represents your T-maze geometry with the right walls and reward locations."
+               data-explanation-wrong="The agent navigates whatever arena it is placed in. To change the physical space, you change the Arena — not the brain model, the data, or the training loop.">
+            <p class="quiz-question">Q2 — You want to test an existing brain model in a T-maze environment. What do you need to create?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="a" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                A new Agent subclass
+              </button>
+              <button class="quiz-option" data-value="b" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                A new Experiment data loader
+              </button>
+              <button class="quiz-option" data-value="c" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                A new Arena subclass in <code>arenas/</code>
+              </button>
+              <button class="quiz-option" data-value="d" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                A new training loop in <code>backend/</code>
+              </button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <!-- Q3 -->
+          <div class="quiz-question-block"
+               data-correct="d"
+               data-explanation-right="Experiment classes load published recordings from real rats — exact spike times, positions, and rate maps. That is the scientific ground truth your model is being evaluated against."
+               data-explanation-wrong="The Arena knows space. The Backend knows training history. The Agent knows its own parameters. Only the Experiment holds real biological data from actual animals.">
+            <p class="quiz-question">Q3 — After training, you want to check if the model produces realistic grid cells. Which component provides the ground truth?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="a" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                The Arena — it knows the exact path the agent walked
+              </button>
+              <button class="quiz-option" data-value="b" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                The Backend — it logged all training statistics
+              </button>
+              <button class="quiz-option" data-value="c" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                The Agent — it stores its own firing patterns
+              </button>
+              <button class="quiz-option" data-value="d" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                The Experiment — it holds real rat neural recordings
+              </button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div style="display:flex; gap: var(--space-3); margin-top: var(--space-6);">
+            <button class="quiz-check-btn" onclick="checkQuiz('quiz-module2')">Check Answers</button>
+            <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module2')">Reset</button>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- ── SCREEN 8: GLOSSARY RECAP ──────────────────────────── -->
+      <div class="screen">
+        <h2 class="screen-heading animate-in">Key Terms from This Module</h2>
+        <p class="animate-in" style="color: var(--color-text-secondary);">
+          Hover or tap any highlighted term in the text above to see its definition. Here is a quick reference for the concepts introduced in this module.
+        </p>
+
+        <div class="icon-rows stagger-children" style="margin-top: var(--space-6);">
+
+          <div class="icon-row animate-in">
+            <div class="icon-circle" style="background: var(--color-accent); font-size: var(--text-xs); font-family: var(--font-mono); font-weight: 700;">ABC</div>
+            <div>
+              <strong><span class="term" data-definition="A blueprint that defines what methods a class MUST have, without implementing them — like a job contract that says 'you must be able to act() and update()' but leaves the details to each applicant">abstract class</span></strong>
+              <p>A blueprint that defines required methods without implementing them — every brain model must fulfill this contract.</p>
+            </div>
+          </div>
+
+          <div class="icon-row animate-in">
+            <div class="icon-circle" style="background: var(--color-accent); font-size: var(--text-xs); font-family: var(--font-mono); font-weight: 700;">↳</div>
+            <div>
+              <strong><span class="term" data-definition="When a new class borrows all the capabilities of an existing class and adds its own — like a child class that gets everything from its parent class for free">inheritance</span></strong>
+              <p>A new class borrows everything from a parent class and only adds what makes it different — Weber2018 inherits from AgentCore.</p>
+            </div>
+          </div>
+
+          <div class="icon-row animate-in">
+            <div class="icon-circle" style="background: var(--color-accent); font-size: var(--text-xs); font-family: var(--font-mono); font-weight: 700;">SoC</div>
+            <div>
+              <strong><span class="term" data-definition="A design principle: each component does exactly one job. Arena handles space. Agent handles learning. When things break, you know exactly where to look.">separation of concerns</span></strong>
+              <p>Each folder does exactly one job — which is why swapping Arena or Agent never requires touching the other.</p>
+            </div>
+          </div>
+
+          <div class="icon-row animate-in">
+            <div class="icon-circle" style="background: var(--color-accent); font-size: var(--text-xs); font-family: var(--font-mono); font-weight: 700;">gym</div>
+            <div>
+              <strong><span class="term" data-definition="The standard Python library for reinforcement learning environments (originally OpenAI Gym) — NeuralPlayground arenas follow its interface so any RL agent can work with them">gymnasium</span></strong>
+              <p>The standard RL environment interface — NeuralPlayground arenas follow it so any compatible agent can plug straight in.</p>
+            </div>
+          </div>
+
+          <div class="icon-row animate-in">
+            <div class="icon-circle" style="background: var(--color-accent); font-size: var(--text-xs); font-family: var(--font-mono); font-weight: 700;">EHC</div>
+            <div>
+              <strong><span class="term" data-definition="Entorhinal-Hippocampal Circuit — the brain region this framework models, famous for containing place cells and grid cells">EHC</span></strong>
+              <p>Entorhinal-Hippocampal Circuit — the brain region containing place cells and grid cells that every model in this framework tries to explain.</p>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+    </div><!-- /.module-body -->
+  </div><!-- /.module-content -->
+</section>

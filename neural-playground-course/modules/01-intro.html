@@ -1,0 +1,290 @@
+<section class="module" id="module-1" style="background: var(--color-bg)">
+  <div class="module-content">
+
+    <header class="module-header animate-in">
+      <span class="module-number">01</span>
+      <h1 class="module-title">Your Brain Has a GPS</h1>
+      <p class="module-subtitle">How a Nobel Prize-winning discovery became a Python framework</p>
+    </header>
+
+    <div class="module-body">
+
+      <!-- ── SCREEN 1: The Hook ─────────────────────────────── -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">A Discovery Worth a Nobel Prize</h2>
+        <p>
+          Somewhere inside your skull, specialized neurons called
+          <span class="term" data-definition="Neurons in the entorhinal cortex that fire in a perfect hexagonal grid as an animal moves through space — like an invisible GPS overlay on the environment">grid cells</span>
+          fire in a perfect hexagonal pattern as you move around a room — like invisible dots on a map.
+          Scientists won a Nobel Prize for discovering this in 2014. NeuralPlayground is the code that lets researchers simulate and test theories about how these neurons work.
+        </p>
+        <p>
+          These grid cells work alongside
+          <span class="term" data-definition="Neurons in the hippocampus that each fire only when the animal is in one specific location — every spot in a room has its own dedicated neuron">place cells</span>
+          in the
+          <span class="term" data-definition="A seahorse-shaped brain region crucial for memory and spatial navigation — damage it and you cannot form new memories or navigate familiar spaces">hippocampus</span>
+          to form a complete internal map of any environment.
+          Together they are the biological GPS that every mammal carries — and NeuralPlayground is the simulator for this system.
+        </p>
+
+        <div class="callout callout-accent">
+          <div class="callout-icon">💡</div>
+          <div class="callout-content">
+            <strong class="callout-title">Key Insight</strong>
+            <p>NeuralPlayground is a research <span class="term" data-definition="A codebase that provides a standard structure you build on top of — like building with LEGO bricks instead of carving each piece from scratch">framework</span> — it gives scientists a standardized way to run virtual experiments, swap out brain models, and compare results against real <span class="term" data-definition="Data captured by implanting tiny electrodes next to individual neurons — each electrode detects the electrical spikes a neuron fires">neural recordings</span> from live animals.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── SCREEN 2: Architecture Overview ───────────────── -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Four Building Blocks, One Simulator</h2>
+        <p>
+          Every experiment in NeuralPlayground involves four actors that each have a distinct job.
+          Knowing the difference between an "Arena" and an "Experiment" means you can describe modifications precisely — rather than saying "something in the environment code."
+        </p>
+
+        <div class="arch-diagram animate-in">
+          <div class="arch-zone">
+            <div class="arch-zone-label">Core Actors</div>
+            <div style="display: flex; flex-wrap: wrap; gap: var(--space-2);">
+              <div class="arch-component" data-info="The brain model. Receives position coordinates, decides which direction to move next, and updates its internal connection weights after each step. This is where theories about how neurons wire themselves live.">
+                <span class="arch-icon">🧠</span>
+                <strong>Agent</strong>
+                <small style="font-size: var(--text-xs); color: var(--color-text-muted);">agents/</small>
+              </div>
+              <div class="arch-component" data-info="The virtual room. Defines the shape of the space, enforces walls, tracks position, and returns a reward signal. Swap a square room for a circular one here without touching the brain model at all.">
+                <span class="arch-icon">🏟️</span>
+                <strong>Arena</strong>
+                <small style="font-size: var(--text-xs); color: var(--color-text-muted);">arenas/</small>
+              </div>
+              <div class="arch-component" data-info="Real rat data. Holds the actual neural recordings from live animals — position traces, spike trains, rate maps. Used after training to validate whether the model produces biologically realistic patterns.">
+                <span class="arch-icon">🔬</span>
+                <strong>Experiment</strong>
+                <small style="font-size: var(--text-xs); color: var(--color-text-muted);">experiments/</small>
+              </div>
+              <div class="arch-component" data-info="The orchestrator. Runs the training loop — reset environment, collect observations, call agent.act(), call env.step(), call agent.update(), log results. You rarely need to change this.">
+                <span class="arch-icon">⚙️</span>
+                <strong>Backend</strong>
+                <small style="font-size: var(--text-xs); color: var(--color-text-muted);">backend/</small>
+              </div>
+            </div>
+          </div>
+          <div class="arch-description">Click any component to learn what it does.</div>
+        </div>
+      </section>
+
+      <!-- ── SCREEN 3: Data Flow Animation ─────────────────── -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">How Data Flows Through a Single Training Step</h2>
+        <p>
+          Every step of training follows the same loop: the Arena produces observations, the Agent acts on them, the Arena validates the move and returns new data, and the Agent learns.
+          Step through the animation to see exactly who talks to whom.
+        </p>
+
+        <div class="flow-animation animate-in" data-steps="[
+          {&quot;highlight&quot;:&quot;flow-actor-4&quot;,&quot;label&quot;:&quot;Backend sets up the simulation&quot;},
+          {&quot;highlight&quot;:&quot;flow-actor-2&quot;,&quot;label&quot;:&quot;Arena initializes: 1m x 1m room, random start position&quot;},
+          {&quot;highlight&quot;:&quot;flow-actor-1&quot;,&quot;label&quot;:&quot;Agent receives first observation: position coordinates&quot;},
+          {&quot;highlight&quot;:&quot;flow-actor-1&quot;,&quot;label&quot;:&quot;Agent decides: move in direction [0.8, 0.2]&quot;,&quot;packet&quot;:true,&quot;from&quot;:&quot;actor-1&quot;,&quot;to&quot;:&quot;actor-2&quot;},
+          {&quot;highlight&quot;:&quot;flow-actor-2&quot;,&quot;label&quot;:&quot;Arena validates the move (no wall collision), updates position&quot;},
+          {&quot;highlight&quot;:&quot;flow-actor-2&quot;,&quot;label&quot;:&quot;Arena returns: new position, reward=0&quot;,&quot;packet&quot;:true,&quot;from&quot;:&quot;actor-2&quot;,&quot;to&quot;:&quot;actor-1&quot;},
+          {&quot;highlight&quot;:&quot;flow-actor-1&quot;,&quot;label&quot;:&quot;Agent runs update() - adjusts its connection weights&quot;},
+          {&quot;highlight&quot;:&quot;flow-actor-3&quot;,&quot;label&quot;:&quot;After training: Experiment provides real rat data for comparison&quot;}
+        ]">
+          <div class="flow-actors">
+            <div class="flow-actor" id="flow-actor-1">
+              <div class="flow-actor-icon" style="background: var(--color-actor-1); color: white; border-color: var(--color-actor-1);">🧠</div>
+              <span>Agent</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-2">
+              <div class="flow-actor-icon" style="background: var(--color-actor-2); color: white; border-color: var(--color-actor-2);">🏟️</div>
+              <span>Arena</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-3">
+              <div class="flow-actor-icon" style="background: var(--color-actor-3); color: white; border-color: var(--color-actor-3);">🔬</div>
+              <span>Experiment</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-4">
+              <div class="flow-actor-icon" style="background: var(--color-actor-4); color: white; border-color: var(--color-actor-4);">⚙️</div>
+              <span>Backend</span>
+            </div>
+          </div>
+          <div class="flow-step-label">Click "Next Step" to begin</div>
+          <div class="flow-packet"></div>
+          <div class="flow-controls">
+            <button class="quiz-check-btn flow-next-btn">Next Step</button>
+            <button class="quiz-reset-btn flow-reset-btn">Reset</button>
+            <span class="flow-progress"></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── SCREEN 4: Code↔English Translation ────────────── -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Reading the Training Loop</h2>
+        <p>
+          The training loop in <code style="font-family: var(--font-mono); font-size: 0.9em; background: var(--color-bg-warm); padding: 2px 6px; border-radius: 4px;">backend/training_loops.py</code> is the heartbeat of every experiment — it runs thousands of times per training session.
+          Here is exactly what each line does in plain English.
+        </p>
+
+        <div class="translation-block animate-in">
+          <div class="translation-code">
+            <span class="translation-label">CODE</span>
+            <pre><code><span class="code-line"><span class="code-property">obs</span><span class="code-operator">, </span><span class="code-property">state</span> <span class="code-operator">=</span> <span class="code-property">env</span>.<span class="code-function">reset</span>()</span>
+<span class="code-line"><span class="code-property">training_hist</span> <span class="code-operator">=</span> []</span>
+<span class="code-line"><span class="code-property">obs</span> <span class="code-operator">=</span> <span class="code-property">obs</span>[<span class="code-number">:2</span>]</span>
+<span class="code-line"><span class="code-keyword">for</span> j <span class="code-keyword">in</span> <span class="code-function">range</span>(<span class="code-function">round</span>(n_steps)):</span>
+<span class="code-line">    <span class="code-comment"># Observe to choose an action</span></span>
+<span class="code-line">    <span class="code-property">action</span> <span class="code-operator">=</span> <span class="code-property">agent</span>.<span class="code-function">act</span>(<span class="code-property">obs</span>)</span>
+<span class="code-line">    <span class="code-comment"># Run environment for given action</span></span>
+<span class="code-line">    <span class="code-property">obs</span><span class="code-operator">, </span><span class="code-property">state</span><span class="code-operator">, </span><span class="code-property">reward</span> <span class="code-operator">=</span> <span class="code-property">env</span>.<span class="code-function">step</span>(<span class="code-property">action</span>)</span>
+<span class="code-line">    <span class="code-property">update_output</span> <span class="code-operator">=</span> <span class="code-property">agent</span>.<span class="code-function">update</span>()</span>
+<span class="code-line">    <span class="code-property">training_hist</span>.<span class="code-function">append</span>(<span class="code-property">update_output</span>)</span>
+<span class="code-line">    <span class="code-property">obs</span> <span class="code-operator">=</span> <span class="code-property">obs</span>[<span class="code-number">:2</span>]</span></code></pre>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">PLAIN ENGLISH</span>
+            <div class="translation-lines">
+              <p class="tl"><code style="font-family: var(--font-mono); font-size: 0.85em;">obs, state = env.reset()</code> — Set up the arena from scratch: randomize starting position, clear all history</p>
+              <p class="tl"><code style="font-family: var(--font-mono); font-size: 0.85em;">obs = obs[:2]</code> — Keep only x,y coordinates (ignore extra sensor data for now)</p>
+              <p class="tl"><code style="font-family: var(--font-mono); font-size: 0.85em;">action = agent.act(obs)</code> — Ask the brain model: given your current position, which direction do you want to move?</p>
+              <p class="tl"><code style="font-family: var(--font-mono); font-size: 0.85em;">obs, state, reward = env.step(action)</code> — Execute that movement: check for walls, update position, return new location</p>
+              <p class="tl"><code style="font-family: var(--font-mono); font-size: 0.85em;">update_output = agent.update()</code> — Let the brain model learn from what just happened: adjust internal connections</p>
+              <p class="tl"><code style="font-family: var(--font-mono); font-size: 0.85em;">training_hist.append(update_output)</code> — Log the learning statistics for later analysis</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="callout callout-accent">
+          <div class="callout-icon">🗺️</div>
+          <div class="callout-content">
+            <strong class="callout-title">What the Agent is "Learning"</strong>
+            <p>After thousands of these loops, the agent develops a
+            <span class="term" data-definition="A 2D heatmap showing how often a neuron fires at each location in an arena — bright spots mean the neuron fires frequently there">rate map</span>
+            for each neuron — a heatmap showing where in the room it tends to fire.
+            The science question is: do those patterns look like real
+            <span class="term" data-definition="Neurons in the entorhinal cortex that fire in a perfect hexagonal grid as an animal moves through space — like an invisible GPS overlay on the environment">grid cells</span>
+            recorded from the
+            <span class="term" data-definition="The brain region just upstream of the hippocampus where grid cells live — it acts like a coordinate system feeding into the memory system">entorhinal cortex</span>?</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── SCREEN 5: Quiz ─────────────────────────────────── -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Check Your Understanding</h2>
+        <p>Three scenario questions. Pick the best answer and then check them all at once.</p>
+
+        <div class="quiz-container animate-in" id="quiz-module1">
+
+          <!-- Q1 -->
+          <div class="quiz-question-block"
+               data-correct="b"
+               data-explanation-right="The brain model&apos;s learning algorithm lives in the Agent&apos;s update() method. That is where theories about how neurons change their connections are implemented."
+               data-explanation-wrong="The Arena handles the physical space, the Experiment holds ground truth data, and the training loop orchestrates everything. The learning algorithm itself lives in the Agent.">
+            <div class="scenario-block">
+              <div class="scenario-context">
+                <span class="scenario-label">Scenario</span>
+                <p>You want to test a new theory about how <span class="term" data-definition="Neurons in the hippocampus that each fire only when the animal is in one specific location — every spot in a room has its own dedicated neuron">place cells</span> form. Which component should you modify?</p>
+              </div>
+            </div>
+            <p class="quiz-question">Where does your new theory belong in the codebase?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="a" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                Change the Arena's step() method
+              </button>
+              <button class="quiz-option" data-value="b" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                Write a new Agent subclass with a custom update() method
+              </button>
+              <button class="quiz-option" data-value="c" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                Modify the Experiment data loading
+              </button>
+              <button class="quiz-option" data-value="d" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                Rewrite the training loop
+              </button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <!-- Q2 -->
+          <div class="quiz-question-block"
+               data-correct="c"
+               data-explanation-right="Visual inspection is subjective and can be fooled. Scientific validation means comparing quantitatively against real rat recordings — that is what the Experiment classes and GridScorer are for."
+               data-explanation-wrong="Visual inspection is not reproducible or objective. The framework provides quantitative comparison against real neural data precisely because visual pattern-matching is unreliable.">
+            <div class="scenario-block">
+              <div class="scenario-context">
+                <span class="scenario-label">Scenario</span>
+                <p>A colleague says the model produces beautiful grid patterns. How do you verify this is scientifically valid?</p>
+              </div>
+            </div>
+            <p class="quiz-question">What is the correct way to validate the model's output?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="a" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                Look at the visualizations — if it looks like a grid, it is a grid
+              </button>
+              <button class="quiz-option" data-value="b" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                Run more training steps until the pattern is clearer
+              </button>
+              <button class="quiz-option" data-value="c" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                Compare the model firing patterns against Experiment data using a metric like GridScorer
+              </button>
+              <button class="quiz-option" data-value="d" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                Ask another colleague to visually inspect it
+              </button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <!-- Q3 -->
+          <div class="quiz-question-block"
+               data-correct="c"
+               data-explanation-right="Separation of concerns. You can test Weber2018 in a circular arena, a rectangular arena, a multi-room maze — without touching the model code at all. This is how you do systematic science."
+               data-explanation-wrong="The separation is intentional: swap any actor for another without rewriting the rest. It is the foundation of the whole framework design.">
+            <div class="scenario-block">
+              <div class="scenario-context">
+                <span class="scenario-label">Architecture</span>
+                <p>NeuralPlayground keeps Agents and Arenas in completely separate class hierarchies.</p>
+              </div>
+            </div>
+            <p class="quiz-question">Why does the framework separate Agents from Arenas into different classes?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="a" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                To make the code longer and more impressive
+              </button>
+              <button class="quiz-option" data-value="b" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                Because arenas are written in a different programming language
+              </button>
+              <button class="quiz-option" data-value="c" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                So the same brain model can be tested in multiple environments without rewriting code
+              </button>
+              <button class="quiz-option" data-value="d" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                Because agents and arenas never need to communicate
+              </button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div style="display: flex; gap: var(--space-3); margin-top: var(--space-6);">
+            <button class="quiz-check-btn" onclick="checkQuiz('quiz-module1')">Check Answers</button>
+            <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module1')">Try Again</button>
+          </div>
+
+        </div>
+      </section>
+
+    </div><!-- /.module-body -->
+  </div><!-- /.module-content -->
+</section>

@@ -1,0 +1,356 @@
+<section class="module" id="module-4" style="background: var(--color-bg-warm)">
+  <div class="module-content">
+
+    <header class="module-header animate-in">
+      <span class="module-number">04</span>
+      <h1 class="module-title">How Neurons Learn Space</h1>
+      <p class="module-subtitle">Two theories, two algorithms — and how grid patterns emerge from nothing</p>
+    </header>
+
+    <div class="module-body">
+
+      <!-- ── SCREEN 1: The Hook ─────────────────────────────── -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Grid Patterns From Nothing</h2>
+        <p>
+          When a rat explores a room, specific neurons fire ONLY in specific spots — like having a dedicated alarm for each location.
+          Two competing theories explain how this emerges from scratch. Both are in this codebase. Here is how they actually work.
+        </p>
+        <p>
+          The remarkable thing: nobody programs the hexagonal pattern. It begins with thousands of neurons connected by tiny random numbers.
+          After enough training steps, a perfectly tiled grid appears — spontaneously. Two completely different algorithms produce it through completely different logic.
+        </p>
+
+        <div class="callout callout-accent animate-in">
+          <div class="callout-icon">🧠</div>
+          <div class="callout-content">
+            <strong class="callout-title">What "Emergence" Means Here</strong>
+            <p>
+              <span class="term" data-definition="A phenomenon where complex patterns arise from simple repeated rules — no central controller plans the outcome. Ant colonies, snowflakes, and grid cells all exhibit emergence.">Emergence</span>
+              means the grid pattern is not stored anywhere in the code. It is a consequence of the learning rules, the number of neurons, and repeated exposure to a space.
+              Change the learning rate and you get a different pattern. Change the arena shape and the grid adapts. The algorithm produces structure, but the structure itself is never specified.
+            </p>
+          </div>
+        </div>
+
+        <div class="info-grid animate-in" style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); margin-top: var(--space-4);">
+          <div style="background: var(--color-bg); border-radius: var(--radius-lg); padding: var(--space-4); border-left: 4px solid var(--color-actor-2);">
+            <h4 style="margin: 0 0 var(--space-2); color: var(--color-actor-2);">Weber2018</h4>
+            <p style="margin: 0; font-size: var(--text-sm);">
+              Pure
+              <span class="term" data-definition="Named after Donald Hebb (1949): neurons that fire together, wire together. If two neurons consistently activate at the same time, the connection between them grows stronger.">Hebbian learning</span>.
+              Excitatory and inhibitory neurons compete until spatial structure crystallizes. No explicit reward. No map. Just correlation.
+            </p>
+          </div>
+          <div style="background: var(--color-bg); border-radius: var(--radius-lg); padding: var(--space-4); border-left: 4px solid var(--color-actor-4);">
+            <h4 style="margin: 0 0 var(--space-2); color: var(--color-actor-4);">Stachenfeld2018</h4>
+            <p style="margin: 0; font-size: var(--text-sm);">
+              The
+              <span class="term" data-definition="A way to represent space by encoding not just where you are, but where you EXPECT to be in the future — like a probability forecast for future locations">Successor Representation</span>.
+              Instead of learning where you are, it learns where you will likely be. Past experience shapes future prediction.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── SCREEN 2: Weber2018 ────────────────────────────── -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Weber2018: The Musician Metaphor</h2>
+        <p>
+          Imagine two musicians who jam together regularly. The more they play together, the stronger their musical bond — they anticipate each other, finish each other's phrases.
+          In Weber2018, neurons work the same way: if two neurons fire at the same location repeatedly, the connection between them strengthens. That is
+          <span class="term" data-definition="Named after Donald Hebb (1949): neurons that fire together, wire together. If two neurons consistently activate at the same time, the connection between them grows stronger.">Hebbian learning</span>
+          in one sentence.
+        </p>
+        <p>
+          The network has 4,900
+          <span class="term" data-definition="A neuron that increases the activity of neurons it connects to — like amplifying a signal">excitatory neurons</span>
+          pushing activity up and 900
+          <span class="term" data-definition="A neuron that decreases the activity of neurons it connects to — like a volume knob that turns things down, preventing runaway activity">inhibitory neurons</span>
+          pulling it down. Their competition, repeated thousands of times, carves the space into distinct firing zones.
+        </p>
+
+        <!-- Code↔English Translation Block -->
+        <div class="translation-block animate-in">
+          <div class="translation-code">
+            <span class="translation-label">CODE — agents/weber_2018.py lines 375–419</span>
+            <pre><code><span class="code-line"><span class="code-keyword">def</span> <span class="code-function">update</span>(<span class="code-property">self</span>, <span class="code-property">exc_normalization</span><span class="code-operator">:</span> bool <span class="code-operator">=</span> <span class="code-keyword">True</span>, <span class="code-property">pos</span><span class="code-operator">:</span> np.ndarray <span class="code-operator">=</span> <span class="code-keyword">None</span>):</span>
+<span class="code-line">    <span class="code-keyword">if</span> <span class="code-property">pos</span> <span class="code-keyword">is</span> <span class="code-keyword">None</span>:</span>
+<span class="code-line">        <span class="code-property">pos</span> <span class="code-operator">=</span> <span class="code-property">self</span>.<span class="code-property">obs_history</span>[<span class="code-operator">-</span>1]</span>
+<span class="code-line">    <span class="code-keyword">if</span> <span class="code-function">len</span>(<span class="code-property">pos</span>) <span class="code-operator">==</span> 0:</span>
+<span class="code-line">        <span class="code-keyword">pass</span></span>
+<span class="code-line">    <span class="code-keyword">else</span>:</span>
+<span class="code-line">        <span class="code-property">r_out</span> <span class="code-operator">=</span> <span class="code-property">self</span>.<span class="code-function">get_output_rates</span>(<span class="code-property">pos</span>)</span>
+<span class="code-line">        <span class="code-comment"># Excitatory weights update (eq 2)</span></span>
+<span class="code-line">        <span class="code-property">delta_we</span> <span class="code-operator">=</span> <span class="code-property">self</span>.<span class="code-property">etaexc</span> <span class="code-operator">*</span> <span class="code-property">self</span>.<span class="code-function">get_rates</span>(<span class="code-property">self</span>.<span class="code-property">exc_cell_list</span>, <span class="code-property">pos</span><span class="code-operator">=</span><span class="code-property">pos</span>) <span class="code-operator">*</span> <span class="code-property">r_out</span></span>
+<span class="code-line">        <span class="code-comment"># Inhibitory weights update (eq 3)</span></span>
+<span class="code-line">        <span class="code-property">delta_wi</span> <span class="code-operator">=</span> (</span>
+<span class="code-line">            <span class="code-property">self</span>.<span class="code-property">etainh</span></span>
+<span class="code-line">            <span class="code-operator">*</span> <span class="code-property">self</span>.<span class="code-function">get_rates</span>(<span class="code-property">self</span>.<span class="code-property">inh_cell_list</span>, <span class="code-property">pos</span><span class="code-operator">=</span><span class="code-property">pos</span>)</span>
+<span class="code-line">            <span class="code-operator">*</span> (<span class="code-property">r_out</span> <span class="code-operator">-</span> <span class="code-property">self</span>.<span class="code-property">ro</span>)</span>
+<span class="code-line">        )</span>
+<span class="code-line">        <span class="code-property">self</span>.<span class="code-property">we</span> <span class="code-operator">=</span> <span class="code-property">self</span>.<span class="code-property">we</span> <span class="code-operator">+</span> <span class="code-property">delta_we</span></span>
+<span class="code-line">        <span class="code-property">self</span>.<span class="code-property">wi</span> <span class="code-operator">=</span> <span class="code-property">self</span>.<span class="code-property">wi</span> <span class="code-operator">+</span> <span class="code-property">delta_wi</span></span>
+<span class="code-line">        <span class="code-keyword">if</span> <span class="code-property">exc_normalization</span>:</span>
+<span class="code-line">            <span class="code-property">self</span>.<span class="code-property">we</span> <span class="code-operator">=</span> (</span>
+<span class="code-line">                <span class="code-property">self</span>.<span class="code-property">init_we_sum</span> <span class="code-operator">/</span> <span class="code-function">np.sqrt</span>(<span class="code-function">np.sum</span>(<span class="code-property">self</span>.<span class="code-property">we</span><span class="code-operator">**</span>2) <span class="code-operator">+</span> 1e-8) <span class="code-operator">*</span> <span class="code-property">self</span>.<span class="code-property">we</span></span>
+<span class="code-line">            )</span></code></pre>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">PLAIN ENGLISH</span>
+            <div class="translation-lines">
+              <p class="tl"><code style="font-family: var(--font-mono); font-size: 0.85em;">pos = self.obs_history[-1]</code> — Get the most recent position from memory (default: the last visited location)</p>
+              <p class="tl"><code style="font-family: var(--font-mono); font-size: 0.85em;">r_out = self.get_output_rates(pos)</code> — Calculate how strongly the output neuron fires right now at this position</p>
+              <p class="tl"><code style="font-family: var(--font-mono); font-size: 0.85em;">delta_we = self.etaexc * ... * r_out</code> — Excitatory
+                <span class="term" data-definition="A number representing the strength of a connection between two neurons. Higher weight = stronger influence.">weight</span>
+                change = learning rate × input firing × output firing. Neurons that fire together, wire together.</p>
+              <p class="tl"><code style="font-family: var(--font-mono); font-size: 0.85em;">delta_wi = self.etainh * ... * (r_out - self.ro)</code> — Inhibitory weight change includes a target rate (ro). This prevents the network from firing everywhere ALL the time.</p>
+              <p class="tl"><code style="font-family: var(--font-mono); font-size: 0.85em;">self.we = self.we + delta_we</code> — Apply the update — strengthen the excitatory connections</p>
+              <p class="tl"><code style="font-family: var(--font-mono); font-size: 0.85em;">self.wi = self.wi + delta_wi</code> — Apply the update — strengthen the inhibitory connections</p>
+              <p class="tl"><code style="font-family: var(--font-mono); font-size: 0.85em;">self.we = (self.init_we_sum / np.sqrt(...) * self.we)</code> — Normalize so total weight strength stays constant — this prevents runaway growth</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="callout callout-accent animate-in">
+          <div class="callout-icon">✨</div>
+          <div class="callout-content">
+            <strong class="callout-title">Emergence is Magic</strong>
+            <p>Nobody programs the hexagonal grid pattern into Weber2018. It emerges spontaneously from thousands of steps of simple weight updates. This is one of the most profound results in computational neuroscience.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── SCREEN 3: Stachenfeld2018 ──────────────────────── -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Stachenfeld2018: The Subway Map Metaphor</h2>
+        <p>
+          Think of a subway map. When you stand at a station, the map does not just show where you ARE — it shows you where you can GO and how many stops away each destination is.
+          Stachenfeld2018 builds exactly this kind of predictive map in the brain: each location encodes not just "I am here" but "here is where I am likely to be in the future."
+        </p>
+        <p>
+          This is the
+          <span class="term" data-definition="A way to represent space by encoding not just where you are, but where you EXPECT to be in the future — like a probability forecast for future locations">Successor Representation</span>
+          — a matrix updated by
+          <span class="term" data-definition="A learning algorithm that updates predictions based on the difference between what you expected and what actually happened — like adjusting your weather forecast after seeing the actual weather">temporal difference learning</span>
+          every time the agent takes a step. The grid-cell-like patterns emerge from
+          <span class="term" data-definition="A mathematical operation that breaks a matrix into its fundamental components — used in Stachenfeld2018 to extract the spatial structure of the successor representation">eigendecomposition</span>
+          of that prediction matrix.
+        </p>
+
+        <div class="translation-block animate-in">
+          <div class="translation-code">
+            <span class="translation-label">CODE — agents/stachenfeld_2018.py lines 179–200</span>
+            <pre><code><span class="code-line"><span class="code-keyword">def</span> <span class="code-function">obs_to_state</span>(<span class="code-property">self</span>, <span class="code-property">pos</span><span class="code-operator">:</span> np.ndarray):</span>
+<span class="code-line">    <span class="code-property">diff</span> <span class="code-operator">=</span> <span class="code-property">self</span>.<span class="code-property">xy_combinations</span> <span class="code-operator">-</span> <span class="code-property">pos</span>[np.newaxis, ...]</span>
+<span class="code-line">    <span class="code-property">dist</span> <span class="code-operator">=</span> <span class="code-function">np.sum</span>(<span class="code-property">diff</span><span class="code-operator">**</span>2, axis<span class="code-operator">=</span>1)</span>
+<span class="code-line">    <span class="code-property">index</span> <span class="code-operator">=</span> <span class="code-function">np.argmin</span>(<span class="code-property">dist</span>)</span>
+<span class="code-line">    <span class="code-property">curr_state</span> <span class="code-operator">=</span> <span class="code-property">index</span></span>
+<span class="code-line">    <span class="code-keyword">return</span> <span class="code-property">curr_state</span></span></code></pre>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">PLAIN ENGLISH</span>
+            <div class="translation-lines">
+              <p class="tl"><code style="font-family: var(--font-mono); font-size: 0.85em;">diff = self.xy_combinations - pos[np.newaxis, ...]</code> — For every grid point on the internal map, compute the vector from that point to the agent's current position</p>
+              <p class="tl"><code style="font-family: var(--font-mono); font-size: 0.85em;">dist = np.sum(diff**2, axis=1)</code> — Convert each vector to a scalar distance (squared, to avoid square roots — faster and mathematically equivalent for comparisons)</p>
+              <p class="tl"><code style="font-family: var(--font-mono); font-size: 0.85em;">index = np.argmin(dist)</code> — Find the grid point with the smallest distance — that is the nearest discrete state</p>
+              <p class="tl"><code style="font-family: var(--font-mono); font-size: 0.85em;">return curr_state</code> — Return that index number. A continuous x,y coordinate is now a single integer the SR matrix can use.</p>
+            </div>
+          </div>
+        </div>
+
+        <div style="background: var(--color-bg); border-radius: var(--radius-lg); padding: var(--space-4); margin-top: var(--space-4); border: 1px solid var(--color-border);">
+          <h4 style="margin: 0 0 var(--space-3); color: var(--color-text);">Why does this function exist at all?</h4>
+          <p style="margin: 0; font-size: var(--text-sm);">
+            The arena gives continuous x,y coordinates like <code style="font-family: var(--font-mono); font-size: 0.9em;">[0.312, -0.087]</code>.
+            But the Successor Representation is a matrix indexed by integers — state 0, state 1, state 2.
+            <code style="font-family: var(--font-mono); font-size: 0.9em;">obs_to_state()</code> is the bridge: snap the continuous position to the nearest point on a pre-built grid, return its index.
+            Without this, the continuous world and the discrete math never connect.
+          </p>
+        </div>
+      </section>
+
+      <!-- ── SCREEN 4: Pattern Cards ────────────────────────── -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Three Models, One Interface</h2>
+        <p>
+          NeuralPlayground ships with three brain models implementing three distinct theories of spatial cognition.
+          Each uses different mathematics, different data structures, even a different framework — but all plug into the same training loop.
+        </p>
+
+        <div class="pattern-cards stagger-children">
+          <div class="pattern-card animate-in" style="border-top: 3px solid var(--color-actor-2)">
+            <div class="pattern-icon" style="background: var(--color-actor-2)">🧪</div>
+            <h4 class="pattern-title">Weber2018</h4>
+            <p class="pattern-desc">
+              <span class="term" data-definition="Named after Donald Hebb (1949): neurons that fire together, wire together. If two neurons consistently activate at the same time, the connection between them grows stronger.">Hebbian plasticity</span>.
+              4,900
+              <span class="term" data-definition="A neuron that increases the activity of neurons it connects to — like amplifying a signal">excitatory</span>
+              + 900
+              <span class="term" data-definition="A neuron that decreases the activity of neurons it connects to — like a volume knob that turns things down, preventing runaway activity">inhibitory</span>
+              neurons. Grid cells and place cells emerge from pure correlation learning.
+            </p>
+          </div>
+          <div class="pattern-card animate-in" style="border-top: 3px solid var(--color-actor-4)">
+            <div class="pattern-icon" style="background: var(--color-actor-4)">🗺️</div>
+            <h4 class="pattern-title">Stachenfeld2018</h4>
+            <p class="pattern-desc">
+              <span class="term" data-definition="A way to represent space by encoding not just where you are, but where you EXPECT to be in the future — like a probability forecast for future locations">Successor Representation</span>.
+              Builds a predictive map: where will I be in the future? Uses
+              <span class="term" data-definition="A learning algorithm that updates predictions based on the difference between what you expected and what actually happened — like adjusting your weather forecast after seeing the actual weather">TD learning</span>
+              on a discretized state space.
+            </p>
+          </div>
+          <div class="pattern-card animate-in" style="border-top: 3px solid var(--color-actor-3)">
+            <div class="pattern-icon" style="background: var(--color-actor-3)">🔗</div>
+            <h4 class="pattern-title">Whittington2020</h4>
+            <p class="pattern-desc">Tolman-Eichenbaum Machine. A graph neural network (PyTorch). Learns relational structure between locations. Requires discrete environments.</p>
+          </div>
+        </div>
+
+        <div class="callout callout-info animate-in">
+          <div class="callout-icon">🔑</div>
+          <div class="callout-content">
+            <strong class="callout-title">The AgentCore Contract</strong>
+            <p>Three models, three completely different algorithms — but all share the same interface: act() and update(). This is why you can swap them with one line of code.</p>
+          </div>
+        </div>
+
+        <div style="background: var(--color-bg); border-radius: var(--radius-lg); padding: var(--space-4); margin-top: var(--space-4); border: 1px solid var(--color-border);">
+          <h4 style="margin: 0 0 var(--space-3); color: var(--color-text);">Adding a Fourth Model</h4>
+          <p style="margin: 0 0 var(--space-3); font-size: var(--text-sm);">If you want to add a model that uses reward signals to navigate, the minimum requirement is two things:</p>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3);">
+            <div style="background: var(--color-bg-warm); border-radius: var(--radius); padding: var(--space-3); border-left: 3px solid var(--color-accent);">
+              <code style="font-family: var(--font-mono); font-size: 0.9em; color: var(--color-accent);">act(self, obs)</code>
+              <p style="margin: var(--space-1) 0 0; font-size: var(--text-sm); color: var(--color-text-muted);">Decision-making. Given a position, return a direction to move. Any logic is valid — random, learned, hardcoded.</p>
+            </div>
+            <div style="background: var(--color-bg-warm); border-radius: var(--radius); padding: var(--space-3); border-left: 3px solid var(--color-accent);">
+              <code style="font-family: var(--font-mono); font-size: 0.9em; color: var(--color-accent);">update(self)</code>
+              <p style="margin: var(--space-1) 0 0; font-size: var(--text-sm); color: var(--color-text-muted);">Learning. Called after every step. Update internal weights, matrices, or neural network parameters here.</p>
+            </div>
+          </div>
+          <p style="margin: var(--space-3) 0 0; font-size: var(--text-sm);">
+            Inherit from <code style="font-family: var(--font-mono); font-size: 0.9em;">AgentCore</code>, implement both methods, and your model works with every Arena, every training loop, and every SimulationManager automatically.
+          </p>
+        </div>
+      </section>
+
+      <!-- ── SCREEN 5: Quiz ─────────────────────────────────── -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Check Your Understanding</h2>
+        <p>Three scenario questions — each grounded in real code. Select the best answer for each, then check them all at once.</p>
+
+        <div class="quiz-container animate-in" id="quiz-module4">
+
+          <!-- Q1 -->
+          <div class="quiz-question-block"
+               data-correct="b"
+               data-explanation-right="With tiny learning rates, delta_we and delta_wi are so small that weights barely change after thousands of steps. The spatial structure never has a chance to emerge. Try increasing etaexc by a factor of 10."
+               data-explanation-wrong="Weber2018 generates spatial structure from tiny random starting weights. If no structure emerges, the most likely culprits are the learning rate parameters (etaexc, etainh) — check those first.">
+            <div class="scenario-block">
+              <div class="scenario-context">
+                <span class="scenario-label">Scenario</span>
+                <p>
+                  After 10,000 training steps, Weber2018 shows a uniform grey firing map — no spatial structure. The arena is a standard 1m × 1m square. The agent explored the full space.
+                </p>
+              </div>
+            </div>
+            <p class="quiz-question">What is the most likely cause of the blank rate map?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="a" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                The arena is too small — the agent never explored enough of the space
+              </button>
+              <button class="quiz-option" data-value="b" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                The learning rates etaexc or etainh are too small, so no meaningful weight updates happen
+              </button>
+              <button class="quiz-option" data-value="c" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                There are not enough neurons (Ne or Ni should be larger)
+              </button>
+              <button class="quiz-option" data-value="d" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                The update() method is being called too frequently
+              </button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <!-- Q2 -->
+          <div class="quiz-question-block"
+               data-correct="b"
+               data-explanation-right="AgentCore defines the contract. Any class that inherits from it and implements act() and update() works with every Arena, every training loop, and every SimulationManager — no other changes needed."
+               data-explanation-wrong="The framework is designed for flexibility. AgentCore specifies two required methods: act() for decision-making and update() for learning. As long as your class inherits from AgentCore and implements these two, it plugs in everywhere.">
+            <div class="scenario-block">
+              <div class="scenario-context">
+                <span class="scenario-label">Scenario</span>
+                <p>You are building a brain model that uses reward signals to navigate — something neither Weber2018 nor Stachenfeld2018 does. You want it to work with every existing Arena without modifying any Arena code.</p>
+              </div>
+            </div>
+            <p class="quiz-question">What is the minimum contract your new model must satisfy?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="a" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                It must inherit from Weber2018 specifically
+              </button>
+              <button class="quiz-option" data-value="b" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                It must implement act(self, obs) and update(self) and inherit from AgentCore
+              </button>
+              <button class="quiz-option" data-value="c" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                It must be in the same file as AgentCore
+              </button>
+              <button class="quiz-option" data-value="d" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                It must use NumPy arrays internally
+              </button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <!-- Q3 -->
+          <div class="quiz-question-block"
+               data-correct="c"
+               data-explanation-right="obs_to_state() takes a continuous x,y coordinate and returns the index of the nearest grid point in the discretized state space. This bridges the continuous arena and the discrete successor representation matrix."
+               data-explanation-wrong="Stachenfeld2018 works on a discretized grid, but the arena gives continuous positions. obs_to_state() is the bridge — it finds which discrete grid cell is closest to the current continuous position.">
+            <div class="scenario-block">
+              <div class="scenario-context">
+                <span class="scenario-label">Scenario</span>
+                <p>The agent moves to continuous position <code style="font-family: var(--font-mono); font-size: 0.9em;">[0.3, -0.1]</code>. The Stachenfeld2018 model needs to update its prediction matrix — but the matrix is indexed by integers, not coordinates.</p>
+              </div>
+            </div>
+            <p class="quiz-question">Which function converts the continuous position to a number the model can use?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="a" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                act() — it translates position to action
+              </button>
+              <button class="quiz-option" data-value="b" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                reset() — it sets up the state space
+              </button>
+              <button class="quiz-option" data-value="c" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                obs_to_state() — it finds the nearest discrete state index
+              </button>
+              <button class="quiz-option" data-value="d" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                update_successor_rep() — it updates the prediction matrix
+              </button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div class="quiz-controls" style="display: flex; gap: var(--space-3); margin-top: var(--space-4);">
+            <button class="quiz-check-btn" onclick="checkQuiz('quiz-module4')">Check All Answers</button>
+            <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module4')">Reset</button>
+          </div>
+
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>

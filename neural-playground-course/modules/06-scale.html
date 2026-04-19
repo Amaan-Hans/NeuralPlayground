@@ -1,0 +1,471 @@
+<section class="module" id="module-6" style="background: var(--color-bg-warm)">
+  <div class="module-content">
+
+    <!-- ── HEADER ───────────────────────────────────────────────── -->
+    <header class="module-header animate-in">
+      <span class="module-number">06</span>
+      <h1 class="module-title">Science at Scale</h1>
+      <p class="module-subtitle">From one simulation to fifty — automated, logged, and reproducible</p>
+    </header>
+
+    <div class="module-body">
+
+      <!-- ── SCREEN 1: OPENING HOOK ───────────────────────────── -->
+      <div class="screen">
+        <p class="animate-in" style="font-size: var(--text-lg); line-height: var(--leading-loose); color: var(--color-text);">
+          A single simulation tells you almost nothing scientifically. You need Weber2018 vs Stachenfeld2018, in multiple arenas, with 5 <span class="term" data-definition="A starting number for random number generation — using the same seed gives the same random sequence, making experiments reproducible">random seeds</span> each, all results logged and comparable. Without SimulationManager you write 50 loops by hand. With it: three lines of code.
+        </p>
+        <p class="animate-in" style="color: var(--color-text-secondary);">
+          Think of it like a wine competition. Running one simulation is like tasting one wine — interesting, but scientifically meaningless. Good science requires a systematic tasting: same models, five different starting conditions, compared side-by-side with careful notes. <strong>SimulationManager is the sommelier who organizes the whole tasting.</strong>
+        </p>
+
+        <div class="icon-rows stagger-children" style="margin-top: var(--space-6);">
+
+          <div class="icon-row animate-in">
+            <div class="icon-circle" style="background: var(--color-actor-2)">N</div>
+            <div>
+              <strong>The combinatorial explosion</strong>
+              <p>N agents × M arenas × K seeds = every combination, automatically. SimulationManager turns a 50-line nested loop into a single configuration object.</p>
+            </div>
+          </div>
+
+          <div class="icon-row animate-in">
+            <div class="icon-circle" style="background: var(--color-actor-5)">✓</div>
+            <div>
+              <strong>Failure-tolerant by design</strong>
+              <p>If one run crashes, the manager logs the error, skips forward, and finishes the rest. Come back, call <code>check_run_status()</code>, and fix only what broke.</p>
+            </div>
+          </div>
+
+          <div class="icon-row animate-in">
+            <div class="icon-circle" style="background: var(--color-actor-3)">📁</div>
+            <div>
+              <strong>Structured output from the start</strong>
+              <p><code>generate_sim_paths()</code> creates a clean folder hierarchy before the first run — so results are always organized and never overwritten.</p>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- ── SCREEN 2: CODE ↔ ENGLISH TRANSLATION ─────────────── -->
+      <div class="screen">
+        <h2 class="screen-heading animate-in">Reading the SimulationManager</h2>
+        <p class="animate-in" style="color: var(--color-text-secondary);">
+          Five lines control the entire experiment. Here is what each one actually does — and why it matters for <span class="term" data-definition="The ability to run an experiment again and get the same result — essential for science and for debugging">reproducibility</span>.
+        </p>
+
+        <div class="translation-block animate-in">
+          <div class="translation-code">
+            <span class="translation-label">Python</span>
+<code><span class="code-line"><span class="code-keyword">from</span> neuralplayground.backend <span class="code-keyword">import</span> SimulationManager</span>
+<span class="code-line"><span class="code-keyword">from</span> neuralplayground.backend.default_simulation <span class="code-keyword">import</span> \</span>
+<span class="code-line">    weber_in_2d, stachenfeld_in_2d</span>
+<span class="code-line"></span>
+<span class="code-line">manager <span class="code-operator">=</span> <span class="code-function">SimulationManager</span>(</span>
+<span class="code-line">    simulation_list<span class="code-operator">=</span>[weber_in_2d, stachenfeld_in_2d],</span>
+<span class="code-line">    runs_per_sim<span class="code-operator">=</span><span class="code-number">5</span>,</span>
+<span class="code-line">    manager_id<span class="code-operator">=</span><span class="code-string">"my_comparison"</span></span>
+<span class="code-line">)</span>
+<span class="code-line">manager.<span class="code-function">generate_sim_paths</span>()</span>
+<span class="code-line">manager.<span class="code-function">run_all</span>()</span>
+<span class="code-line">manager.<span class="code-function">check_run_status</span>()</span>
+</code>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">In plain English</span>
+            <div class="translation-lines">
+              <div class="tl"><strong>from ...default_simulation import weber_in_2d, stachenfeld_in_2d</strong><br>Load pre-configured simulation blueprints — each bundles an agent class, an arena class, a training loop, and all parameters</div>
+              <div class="tl"><strong>SimulationManager(simulation_list=[...], runs_per_sim=5, ...)</strong><br>Set up a manager to run each configuration 5 times — multiple runs average out the randomness of different starting positions</div>
+              <div class="tl"><strong>manager.generate_sim_paths()</strong><br>Create the folder structure on disk where results will be saved — one folder per simulation, per run</div>
+              <div class="tl"><strong>manager.run_all()</strong><br>Execute all 10 simulations (2 configs × 5 runs each) — handles errors gracefully and logs failures separately</div>
+              <div class="tl"><strong>manager.check_run_status()</strong><br>Print a status report: how many completed, how many failed, and what went wrong</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="callout callout-accent animate-in" style="margin-top: var(--space-6);">
+          <div class="callout-icon">🔬</div>
+          <div class="callout-content">
+            <strong class="callout-title">Reproducible Science</strong>
+            <p><code>runs_per_sim=5</code> is not optional vanity — it accounts for the random starting position of each run. Reporting a single run would be like flipping a coin once and declaring "it is always heads."</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── SCREEN 3: GROUP CHAT ANIMATION ────────────────────── -->
+      <div class="screen">
+        <h2 class="screen-heading animate-in">Watching SimulationManager Orchestrate a Run</h2>
+        <p class="animate-in" style="color: var(--color-text-secondary);">
+          Press <strong>Next Message</strong> to follow a complete managed run — from startup to <span class="term" data-definition="Converting a live object (like a trained agent) into a format that can be saved to disk and restored later">serialization</span>. Notice how SimulationManager drives the sequence and the filesystem handles persistence.
+        </p>
+
+        <div class="chat-window animate-in" id="chat-module6">
+          <div class="chat-messages">
+
+            <!-- msg 0 -->
+            <div class="chat-message" data-msg="0" data-sender="manager" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-2)">SM</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-2)">SIMULATION MANAGER</span>
+                <p>Starting run 1 of 5 for Weber2018 in Simple2D...</p>
+              </div>
+            </div>
+
+            <!-- msg 1 -->
+            <div class="chat-message" data-msg="1" data-sender="weber" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-1)">W</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-1)">WEBER</span>
+                <p>Initializing 4,900 excitatory neurons and 900 inhibitory neurons.</p>
+              </div>
+            </div>
+
+            <!-- msg 2 -->
+            <div class="chat-message" data-msg="2" data-sender="manager" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-2)">SM</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-2)">SIMULATION MANAGER</span>
+                <p>Training loop: 20,000 steps running.</p>
+              </div>
+            </div>
+
+            <!-- msg 3 -->
+            <div class="chat-message" data-msg="3" data-sender="weber" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-1)">W</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-1)">WEBER</span>
+                <p>Training complete. <span class="term" data-definition="A number from -1 to 1.7+ measuring how hexagonally periodic a rate map is — higher scores mean more grid-like spatial tuning">Grid score</span>: 0.73. Saving to disk.</p>
+              </div>
+            </div>
+
+            <!-- msg 4 -->
+            <div class="chat-message" data-msg="4" data-sender="filesystem" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-5)">FS</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-5)">FILESYSTEM</span>
+                <p>Saved: <code>my_comparison/weber_in_2d/run_1/agent.<span class="term" data-definition="A Python format for saving any object to disk as a binary file — used here to save trained agents and environments for later analysis">pkl</span></code></p>
+              </div>
+            </div>
+
+            <!-- msg 5 -->
+            <div class="chat-message" data-msg="5" data-sender="manager" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-2)">SM</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-2)">SIMULATION MANAGER</span>
+                <p>Run 1 complete. Starting run 1 of 5 for Stachenfeld2018...</p>
+              </div>
+            </div>
+
+            <!-- msg 6 -->
+            <div class="chat-message" data-msg="6" data-sender="stachenfeld" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-3)">S</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-3)">STACHENFELD</span>
+                <p>Building successor representation matrix for 400 states.</p>
+              </div>
+            </div>
+
+            <!-- msg 7 -->
+            <div class="chat-message" data-msg="7" data-sender="manager" style="display:none">
+              <div class="chat-avatar" style="background: var(--color-actor-2)">SM</div>
+              <div class="chat-bubble">
+                <span class="chat-sender" style="color: var(--color-actor-2)">SIMULATION MANAGER</span>
+                <p>All 10 runs complete. Weber avg: 0.71. Stachenfeld avg: 0.58.</p>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- typing indicator -->
+          <div class="chat-typing" style="display:none">
+            <div class="chat-avatar" id="chat-module6-typing-avatar">?</div>
+            <div class="chat-typing-dots">
+              <span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span>
+            </div>
+          </div>
+
+          <div class="chat-controls">
+            <button class="btn chat-next-btn">Next Message</button>
+            <button class="btn chat-all-btn">Play All</button>
+            <button class="btn chat-reset-btn">Replay</button>
+            <span class="chat-progress"></span>
+          </div>
+        </div>
+
+        <p class="animate-in" style="color: var(--color-text-secondary); font-size: var(--text-sm);">
+          The <span class="term" data-definition="A Python format for saving any object to disk as a binary file — used here to save trained agents and environments for later analysis">pickle</span> format (<code>.pkl</code>) means you can reload a fully trained agent days later without rerunning anything — just call <code>restore_agent(save_path)</code>.
+        </p>
+      </div>
+
+      <!-- ── SCREEN 4: 5-STEP RESEARCH PIPELINE ────────────────── -->
+      <div class="screen">
+        <h2 class="screen-heading animate-in">The Complete Research Pipeline</h2>
+        <p class="animate-in" style="color: var(--color-text-secondary);">
+          Every NeuralPlayground experiment follows the same five steps. Master this sequence and you can describe your entire workflow to an AI assistant with precision — and get usable code back every time.
+        </p>
+
+        <div class="step-cards stagger-children" style="margin-top: var(--space-6);">
+
+          <div class="step-card animate-in">
+            <div class="step-num" style="background: var(--color-actor-2)">1</div>
+            <div class="step-body">
+              <strong>Write Your Agent</strong>
+              <p>Create a class that inherits from <code>AgentCore</code>. Implement <code>act()</code> (return a direction) and <code>update()</code> (adjust weights). The framework handles everything else.</p>
+            </div>
+          </div>
+
+          <div class="step-card animate-in">
+            <div class="step-num" style="background: var(--color-actor-4)">2</div>
+            <div class="step-body">
+              <strong>Bundle as a SingleSim</strong>
+              <p>Create a <code>SingleSim</code> object that bundles your agent class, an arena class, a training loop function, and a parameters dict into one configuration object.</p>
+            </div>
+          </div>
+
+          <div class="step-card animate-in">
+            <div class="step-num" style="background: var(--color-actor-2)">3</div>
+            <div class="step-body">
+              <strong>Add to SimulationManager</strong>
+              <p>Pass your <code>SingleSim</code> objects to <code>SimulationManager</code> with <code>runs_per_sim=5</code>. The manager handles the N × M × K combinatorial expansion automatically.</p>
+            </div>
+          </div>
+
+          <div class="step-card animate-in">
+            <div class="step-num" style="background: var(--color-actor-5)">4</div>
+            <div class="step-body">
+              <strong>Run Everything</strong>
+              <p>Call <code>generate_sim_paths()</code> then <code>run_all()</code>. Failed runs are logged — not fatal. Call <code>check_run_status()</code> to see what completed.</p>
+            </div>
+          </div>
+
+          <div class="step-card animate-in">
+            <div class="step-num" style="background: var(--color-actor-3)">5</div>
+            <div class="step-body">
+              <strong>Compare Against Experiment Data</strong>
+              <p>Load your saved agents, extract rate maps, and pass them to <code>GridScorer.score()</code> alongside real <code>Experiment</code> data. Numbers — not guesses — tell you whose model is better.</p>
+            </div>
+          </div>
+
+        </div>
+
+        <div class="callout callout-info animate-in" style="margin-top: var(--space-6);">
+          <div class="callout-icon">🧭</div>
+          <div class="callout-content">
+            <strong class="callout-title">You Now Know the Whole Map</strong>
+            <p>Agent → Arena → Training Loop → Experiment → SimulationManager → GridScorer. Every piece of NeuralPlayground, and how they connect.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── SCREEN 5: QUIZ ─────────────────────────────────────── -->
+      <div class="screen">
+        <h2 class="screen-heading animate-in">Final Check — The Whole Course</h2>
+        <p class="animate-in" style="color: var(--color-text-secondary);">
+          Three questions that span the entire NeuralPlayground framework. If you can answer these, you have the mental model you need to build with it.
+        </p>
+
+        <div class="quiz-container animate-in" id="quiz-module6">
+
+          <!-- Q1 -->
+          <div class="quiz-question-block"
+               data-correct="b"
+               data-explanation-right="SingleSim is the wrapper that bundles an agent class, arena class, training loop, and parameters together. Create one for MyModel2024 and add it to simulation_list — no other changes needed."
+               data-explanation-wrong="SimulationManager works with any AgentCore subclass. Create a SingleSim(agent_class=MyModel2024, env_class=Simple2D, training_loop=default_training_loop, params={...}) and you are done.">
+            <p class="quiz-question">Q1 — You add a new brain model <code>MyModel2024</code>. What do you need to do to include it in a SimulationManager comparison?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="a" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                Add it directly to <code>simulation_list</code> — just pass the class
+              </button>
+              <button class="quiz-option" data-value="b" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                Create a <code>SingleSim</code> object specifying <code>MyModel2024</code> as <code>agent_class</code> with an arena class and training loop
+              </button>
+              <button class="quiz-option" data-value="c" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                Modify <code>SimulationManager</code> to support the new model type
+              </button>
+              <button class="quiz-option" data-value="d" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                Override <code>run_all()</code> to handle your model differently
+              </button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <!-- Q2 -->
+          <div class="quiz-question-block"
+               data-correct="c"
+               data-explanation-right="SimulationManager catches all exceptions and writes them to log files. show_logs() gives you the full Python stack trace for any failed run — exactly where and why it broke."
+               data-explanation-wrong="SimulationManager does not crash when a simulation fails — it logs the error and continues. show_logs() retrieves those logs. Start there before guessing.">
+            <p class="quiz-question">Q2 — After <code>run_all()</code> some simulations show <code>status=FAILED</code>. What should you check first?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="a" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                Re-run everything from scratch
+              </button>
+              <button class="quiz-option" data-value="b" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                Open the <code>agent.pkl</code> files manually
+              </button>
+              <button class="quiz-option" data-value="c" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                Call <code>manager.show_logs(simulation_index, log_type='error')</code> to read the <span class="term" data-definition="The error report Python generates when something crashes — shows exactly which function called which, and where the failure occurred">stack trace</span>
+              </button>
+              <button class="quiz-option" data-value="d" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                Check the Arena code for bugs
+              </button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <!-- Q3 -->
+          <div class="quiz-question-block"
+               data-correct="b"
+               data-explanation-right="That is the complete pipeline: (1) write Agent subclass; (2) bundle as SingleSim; (3) add to SimulationManager; (4) run_all(); (5) extract rate maps and compare against Experiment data with GridScorer."
+               data-explanation-wrong="The framework has each step covered: AgentCore for models, SingleSim for configuration, SimulationManager for orchestration, GridScorer for quantitative comparison against real Experiment data.">
+            <p class="quiz-question">Q3 — Walk through the complete path from writing a new brain model to getting a <span class="term" data-definition="A number from -1 to 1.7+ measuring how hexagonally periodic a rate map is — higher scores mean more grid-like spatial tuning">grid score</span>. What are the five steps in order?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="a" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                Create agent → <code>run_all()</code> → <code>check_run_status()</code> → GridScorer → plot
+              </button>
+              <button class="quiz-option" data-value="b" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                Create agent → create <code>SingleSim</code> → add to <code>SimulationManager</code> → <code>run_all()</code> → <code>GridScorer.score()</code> against Experiment data
+              </button>
+              <button class="quiz-option" data-value="c" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                Clone repo → modify Weber2018 → run <code>default_training_loop</code> → plot rate map
+              </button>
+              <button class="quiz-option" data-value="d" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                Load Experiment data → create agent → train manually → compare visually
+              </button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div style="display:flex; gap: var(--space-3); margin-top: var(--space-6);">
+            <button class="quiz-check-btn" onclick="checkQuiz('quiz-module6')">Check Answers</button>
+            <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module6')">Reset</button>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- ── SCREEN 6: GLOSSARY RECAP ──────────────────────────── -->
+      <div class="screen">
+        <h2 class="screen-heading animate-in">Key Terms from This Module</h2>
+        <p class="animate-in" style="color: var(--color-text-secondary);">
+          Hover or tap any highlighted term to see its definition. Here is the quick reference for every concept introduced in this module.
+        </p>
+
+        <div class="icon-rows stagger-children" style="margin-top: var(--space-6);">
+
+          <div class="icon-row animate-in">
+            <div class="icon-circle" style="background: var(--color-accent); font-size: var(--text-xs); font-family: var(--font-mono); font-weight: 700;">🌱</div>
+            <div>
+              <strong><span class="term" data-definition="A starting number for random number generation — using the same seed gives the same random sequence, making experiments reproducible">random seed</span></strong>
+              <p>Controls the starting randomness of a run — using the same seed gives the same result every time, which is essential for debugging and fair comparison.</p>
+            </div>
+          </div>
+
+          <div class="icon-row animate-in">
+            <div class="icon-circle" style="background: var(--color-accent); font-size: var(--text-xs); font-family: var(--font-mono); font-weight: 700;">♻️</div>
+            <div>
+              <strong><span class="term" data-definition="The ability to run an experiment again and get the same result — essential for science and for debugging">reproducibility</span></strong>
+              <p>The gold standard of science — if another researcher runs your code and gets a different answer, the result means nothing. Seeded runs and logged parameters make this achievable.</p>
+            </div>
+          </div>
+
+          <div class="icon-row animate-in">
+            <div class="icon-circle" style="background: var(--color-accent); font-size: var(--text-xs); font-family: var(--font-mono); font-weight: 700;">📐</div>
+            <div>
+              <strong><span class="term" data-definition="A number from -1 to 1.7+ measuring how hexagonally periodic a rate map is — higher scores mean more grid-like spatial tuning">grid score</span></strong>
+              <p>A quantitative measure of how hexagonally grid-like a neuron's firing pattern is — the key number for comparing models against real rat data.</p>
+            </div>
+          </div>
+
+          <div class="icon-row animate-in">
+            <div class="icon-circle" style="background: var(--color-accent); font-size: var(--text-xs); font-family: var(--font-mono); font-weight: 700;">.pkl</div>
+            <div>
+              <strong><span class="term" data-definition="A Python format for saving any object to disk as a binary file — used here to save trained agents and environments for later analysis">pickle</span></strong>
+              <p>Python's built-in format for saving any live object to disk — trained agents, environments, and results are stored as <code>.pkl</code> files so nothing is lost between sessions.</p>
+            </div>
+          </div>
+
+          <div class="icon-row animate-in">
+            <div class="icon-circle" style="background: var(--color-accent); font-size: var(--text-xs); font-family: var(--font-mono); font-weight: 700;">💾</div>
+            <div>
+              <strong><span class="term" data-definition="Converting a live object (like a trained agent) into a format that can be saved to disk and restored later">serialization</span></strong>
+              <p>Turning a complex, live Python object into bytes that can be stored and later reconstructed — what happens under the hood every time you call <code>save_agent()</code>.</p>
+            </div>
+          </div>
+
+          <div class="icon-row animate-in">
+            <div class="icon-circle" style="background: var(--color-accent); font-size: var(--text-xs); font-family: var(--font-mono); font-weight: 700;">🔴</div>
+            <div>
+              <strong><span class="term" data-definition="The error report Python generates when something crashes — shows exactly which function called which, and where the failure occurred">stack trace</span></strong>
+              <p>The full error report when something breaks — SimulationManager saves these to log files so you can read them later with <code>show_logs()</code> without re-running anything.</p>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- ── SCREEN 7: WHAT TO DO NEXT ─────────────────────────── -->
+      <section class="screen animate-in">
+        <h2 class="screen-heading">Your Next Steps</h2>
+        <p style="color: var(--color-text-secondary); margin-bottom: var(--space-6);">
+          You have the full map. Now walk the territory. Here are three concrete actions — each one builds directly on what you learned in this course.
+        </p>
+        <div class="step-cards stagger-children">
+
+          <div class="step-card animate-in">
+            <div class="step-num">1</div>
+            <div class="step-body">
+              <strong>Run the Colab Notebook</strong>
+              <p>Open <code>examples/colab_example.ipynb</code> and run Weber2018 in Simple2D. See the grid patterns emerge with your own eyes.</p>
+            </div>
+          </div>
+
+          <div class="step-card animate-in">
+            <div class="step-num">2</div>
+            <div class="step-body">
+              <strong>Implement a New Agent</strong>
+              <p>Create a class that inherits from <code>AgentCore</code>. Implement <code>act()</code> (return a random direction) and <code>update()</code> (return None). Run it with <code>default_training_loop</code>.</p>
+            </div>
+          </div>
+
+          <div class="step-card animate-in">
+            <div class="step-num">3</div>
+            <div class="step-body">
+              <strong>Add a Real Experiment Dataset</strong>
+              <p>Find a published neuroscience dataset, create an <code>Experiment</code> subclass, and use <code>pooch</code> to fetch and cache it. Then wire it to a <code>SimulationManager</code> comparison.</p>
+            </div>
+          </div>
+
+        </div>
+
+        <div class="callout callout-accent animate-in" style="margin-top: var(--space-8);">
+          <div class="callout-icon">🚀</div>
+          <div class="callout-content">
+            <strong class="callout-title">You Are Ready</strong>
+            <p>You now speak NeuralPlayground fluently — agents, arenas, experiments, training loops, SimulationManager, and GridScorer. Tell an AI assistant exactly which class to modify, which method to implement, and which manager to configure. That precision is the real skill you built here.</p>
+          </div>
+        </div>
+
+        <div style="text-align: center; margin-top: var(--space-8); padding: var(--space-8) 0;">
+          <p style="font-size: var(--text-xl); font-weight: 700; color: var(--color-accent); margin-bottom: var(--space-3);">Course Complete</p>
+          <p style="color: var(--color-text-secondary); max-width: 480px; margin: 0 auto;">
+            From a single agent taking its first step, to a full 50-run experiment with quantitative results — you understand the whole system. Go build something.
+          </p>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>

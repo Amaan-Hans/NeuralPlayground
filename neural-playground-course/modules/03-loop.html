@@ -1,0 +1,344 @@
+<section class="module" id="module-3" style="background: var(--color-bg)">
+  <div class="module-content">
+
+    <header class="module-header animate-in">
+      <span class="module-number">03</span>
+      <h1 class="module-title">The Heartbeat Loop</h1>
+      <p class="module-subtitle">Four lines that run 20,000 times — and everything else supports them</p>
+    </header>
+
+    <div class="module-body">
+
+      <!-- ══════════════════════════════════════════════════════════
+           SCREEN 1 — HOOK: FOUR LINES RULE THE WORLD
+           ══════════════════════════════════════════════════════════ -->
+      <div class="screen">
+        <h2 class="screen-heading animate-in">Four Lines Rule the World</h2>
+
+        <p class="animate-in">
+          There is one piece of code that runs tens of thousands of times in every simulation.
+          It is four lines long. Everything else in the framework exists to support those four lines.
+        </p>
+
+        <p class="animate-in">
+          A heartbeat has four phases: squeeze, pause, refill, relax. Miss one and the whole system stops.
+          The <span class="term" data-definition="A type of machine learning where an agent learns by trial and error: take an action, see what happens, adjust behavior. Like training a dog with treats, but mathematical.">reinforcement learning</span> training loop has the same rhythm: observe, act, step, update.
+          This four-beat pattern is universal — it appears in <em>every</em> RL system ever written.
+        </p>
+
+        <div class="callout callout-accent animate-in">
+          <div class="callout-icon">💡</div>
+          <div class="callout-content">
+            <strong class="callout-title">Universal Pattern</strong>
+            <p>This exact four-beat loop — observe, act, step, update — appears in EVERY reinforcement learning system. OpenAI Gym, DeepMind Lab, robotics simulators. Learn this pattern once; read any RL codebase forever.</p>
+          </div>
+        </div>
+
+        <p class="animate-in">
+          <strong>Why should you care?</strong> When you ask AI to add a feature — logging, visualization, early stopping — you need to know <em>where</em> in this loop to put it.
+          That question has a precise answer, and after this module you'll know it.
+        </p>
+
+        <div class="flow-steps animate-in">
+          <div class="flow-step">
+            <div class="flow-step-num">1</div>
+            <p>OBSERVE</p>
+          </div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-step">
+            <div class="flow-step-num">2</div>
+            <p>ACT</p>
+          </div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-step">
+            <div class="flow-step-num">3</div>
+            <p>STEP</p>
+          </div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-step">
+            <div class="flow-step-num">4</div>
+            <p>UPDATE</p>
+          </div>
+          <div class="flow-arrow">↩</div>
+        </div>
+      </div>
+
+
+      <!-- ══════════════════════════════════════════════════════════
+           SCREEN 2 — CODE ↔ ENGLISH TRANSLATION
+           ══════════════════════════════════════════════════════════ -->
+      <div class="screen">
+        <h2 class="screen-heading animate-in">The Loop, Line by Line</h2>
+
+        <p class="animate-in">
+          Every line in the core loop has one job. Here is exactly what each one does in plain English —
+          from <code style="font-family: var(--font-mono); font-size: var(--text-sm); background: var(--color-bg-warm); padding: 2px 6px; border-radius: 4px;">backend/training_loops.py</code>, lines 29–41.
+        </p>
+
+        <div class="translation-block animate-in">
+          <div class="translation-code">
+            <span class="translation-label">CODE</span>
+<pre><code><span class="code-line"><span class="code-property">obs</span><span class="code-operator">,</span> <span class="code-property">state</span> <span class="code-operator">=</span> <span class="code-property">env</span><span class="code-operator">.</span><span class="code-function">reset</span>()</span>
+<span class="code-line"><span class="code-property">training_hist</span> <span class="code-operator">=</span> []</span>
+<span class="code-line"><span class="code-property">obs</span> <span class="code-operator">=</span> <span class="code-property">obs</span>[<span class="code-operator">:</span><span class="code-number">2</span>]</span>
+<span class="code-line"><span class="code-keyword">for</span> j <span class="code-keyword">in</span> <span class="code-function">range</span>(<span class="code-function">round</span>(<span class="code-property">n_steps</span>)):</span>
+<span class="code-line">    <span class="code-property">action</span> <span class="code-operator">=</span> <span class="code-property">agent</span><span class="code-operator">.</span><span class="code-function">act</span>(<span class="code-property">obs</span>)</span>
+<span class="code-line">    <span class="code-property">obs</span><span class="code-operator">,</span> <span class="code-property">state</span><span class="code-operator">,</span> <span class="code-property">reward</span> <span class="code-operator">=</span> <span class="code-property">env</span><span class="code-operator">.</span><span class="code-function">step</span>(<span class="code-property">action</span>)</span>
+<span class="code-line">    <span class="code-property">update_output</span> <span class="code-operator">=</span> <span class="code-property">agent</span><span class="code-operator">.</span><span class="code-function">update</span>()</span>
+<span class="code-line">    <span class="code-property">training_hist</span><span class="code-operator">.</span><span class="code-function">append</span>(<span class="code-property">update_output</span>)</span>
+<span class="code-line">    <span class="code-property">obs</span> <span class="code-operator">=</span> <span class="code-property">obs</span>[<span class="code-operator">:</span><span class="code-number">2</span>]</span></code></pre>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">PLAIN ENGLISH</span>
+            <div class="translation-lines">
+              <p class="tl">Reset the arena: randomize the starting position, clear all history from previous runs</p>
+              <p class="tl">Create an empty list to store learning statistics as training progresses</p>
+              <p class="tl">Keep only x,y coordinates — the arena returns extra data, but we only need position</p>
+              <p class="tl">Repeat this block for every step in the simulation (up to <span class="term" data-definition="The total number of loop iterations — how many times the agent moves before training ends">n_steps</span> total moves)</p>
+              <p class="tl">Ask the brain model: given where you are, which direction do you want to move?</p>
+              <p class="tl">Execute that movement: check for walls, update position, return new location and <span class="term" data-definition="A number the environment returns after each action to indicate how good or bad that action was — NeuralPlayground uses reward=0 (undirected navigation)">reward signal</span></p>
+              <p class="tl">The brain model learns: adjust connection weights based on what it just experienced</p>
+              <p class="tl">Log the learning statistics for later analysis and debugging</p>
+              <p class="tl">Trim position data again for the next loop iteration</p>
+            </div>
+          </div>
+        </div>
+
+        <p class="animate-in" style="font-size: var(--text-sm); color: var(--color-text-secondary);">
+          Notice the <span class="term" data-definition="The set of all possible inputs an agent can receive — in NeuralPlayground, this is a 2D position coordinate">observation space</span> slice <code style="font-family: var(--font-mono); background: var(--color-bg-warm); padding: 2px 5px; border-radius: 4px;">obs[:2]</code> appears twice: once before the loop, once at the end of each iteration. The arena hands back more data than the agent needs — that trim keeps everything consistent.
+        </p>
+      </div>
+
+
+      <!-- ══════════════════════════════════════════════════════════
+           SCREEN 3 — FOUR-BEAT RHYTHM STEP CARDS
+           ══════════════════════════════════════════════════════════ -->
+      <div class="screen">
+        <h2 class="screen-heading animate-in">The Four-Beat Rhythm</h2>
+
+        <p class="animate-in">
+          Each beat has a single owner and a single responsibility. The agent owns beats 1 and 2 and 4.
+          The arena owns beat 3. Neither can skip its turn.
+        </p>
+
+        <div class="step-cards stagger-children">
+          <div class="step-card animate-in">
+            <div class="step-num">1</div>
+            <div class="step-body">
+              <strong>OBSERVE</strong>
+              <p>The agent receives its current x,y position from the arena. This is all it knows — no memory of past positions, no knowledge of walls, just a two-number coordinate.</p>
+            </div>
+          </div>
+
+          <div class="step-card animate-in">
+            <div class="step-num">2</div>
+            <div class="step-body">
+              <strong>ACT</strong>
+              <p>The brain model computes which direction to move. In the base agent, this is a random Gaussian step. In Weber2018, it uses learned weights shaped by the hippocampus model.</p>
+            </div>
+          </div>
+
+          <div class="step-card animate-in">
+            <div class="step-num">3</div>
+            <div class="step-body">
+              <strong>STEP</strong>
+              <p>The arena executes the move: checks for walls via <code style="font-family: var(--font-mono); font-size: 0.8em; background: var(--color-bg-warm); padding: 1px 4px; border-radius: 3px;">validate_action()</code>, updates position, calculates <span class="term" data-definition="A number the environment returns after each action to indicate how good or bad that action was — NeuralPlayground uses reward=0 (undirected navigation)">reward signal</span>, and returns the new state.</p>
+            </div>
+          </div>
+
+          <div class="step-card animate-in">
+            <div class="step-num">4</div>
+            <div class="step-body">
+              <strong>UPDATE</strong>
+              <p>The brain model learns. It adjusts its internal connections based on where it just was and what it experienced. In <span class="term" data-definition="One complete run from reset to end — like one rat session in the lab">episode</span> terms, this is where the neurons wire together.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="callout callout-info animate-in" style="margin-top: var(--space-8);">
+          <div class="callout-icon">🔬</div>
+          <div class="callout-content">
+            <strong class="callout-title">The Base Agent Does Almost Nothing</strong>
+            <p>The <code style="font-family: var(--font-mono); font-size: 0.85em;">agent.update()</code> method in <code style="font-family: var(--font-mono); font-size: 0.85em;">AgentCore</code> returns <code style="font-family: var(--font-mono); font-size: 0.85em;">None</code>. That is intentional — it is a placeholder that subclasses like Weber2018 override with real learning algorithms. The loop structure stays the same regardless.</p>
+          </div>
+        </div>
+      </div>
+
+
+      <!-- ══════════════════════════════════════════════════════════
+           SCREEN 4 — WHERE TO PLUG IN YOUR CODE
+           ══════════════════════════════════════════════════════════ -->
+      <div class="screen">
+        <h2 class="screen-heading animate-in">Where Do You Plug In?</h2>
+
+        <p class="animate-in">
+          When you ask AI to add a feature, the answer is almost always "put it in the loop — but <em>where</em>?"
+          The answer depends on what information that feature needs.
+        </p>
+
+        <div class="badge-list animate-in">
+          <div class="badge-item">
+            <span class="badge-code">before the loop</span>
+            <span class="badge-desc">One-time setup: load a checkpoint, open a log file, initialize a renderer. Runs once.</span>
+          </div>
+          <div class="badge-item">
+            <span class="badge-code">after agent.act()</span>
+            <span class="badge-desc">You have the action but not yet the result. Useful for visualizing intended movement before it happens.</span>
+          </div>
+          <div class="badge-item" style="border-color: var(--color-accent); background: var(--color-accent-light);">
+            <span class="badge-code" style="background: var(--color-accent); color: white;">after env.step()</span>
+            <span class="badge-desc" style="font-weight: 500;">★ Most common insertion point. You have the new position and reward — ideal for logging, visualization, early stopping, and progress checks.</span>
+          </div>
+          <div class="badge-item">
+            <span class="badge-code">after agent.update()</span>
+            <span class="badge-desc">You have the learning stats from this step. Good for logging loss curves or saving checkpoints at intervals.</span>
+          </div>
+          <div class="badge-item">
+            <span class="badge-code">after the loop</span>
+            <span class="badge-desc">Post-processing: plot trajectories, save the final model, run summary statistics. Runs once.</span>
+          </div>
+        </div>
+
+        <div class="translation-block animate-in" style="margin-top: var(--space-8);">
+          <div class="translation-code">
+            <span class="translation-label">ANNOTATED LOOP</span>
+<pre><code><span class="code-line"><span class="code-comment"># ← BEFORE: setup, file handles, renderers</span></span>
+<span class="code-line"><span class="code-property">obs</span><span class="code-operator">,</span> <span class="code-property">state</span> <span class="code-operator">=</span> <span class="code-property">env</span><span class="code-operator">.</span><span class="code-function">reset</span>()</span>
+<span class="code-line"><span class="code-property">obs</span> <span class="code-operator">=</span> <span class="code-property">obs</span>[<span class="code-operator">:</span><span class="code-number">2</span>]</span>
+<span class="code-line"><span class="code-keyword">for</span> j <span class="code-keyword">in</span> <span class="code-function">range</span>(<span class="code-function">round</span>(<span class="code-property">n_steps</span>)):</span>
+<span class="code-line">    <span class="code-property">action</span> <span class="code-operator">=</span> <span class="code-property">agent</span><span class="code-operator">.</span><span class="code-function">act</span>(<span class="code-property">obs</span>)</span>
+<span class="code-line">    <span class="code-comment">    # ← after act: see intended move</span></span>
+<span class="code-line">    <span class="code-property">obs</span><span class="code-operator">,</span> <span class="code-property">state</span><span class="code-operator">,</span> <span class="code-property">reward</span> <span class="code-operator">=</span> <span class="code-property">env</span><span class="code-operator">.</span><span class="code-function">step</span>(<span class="code-property">action</span>)</span>
+<span class="code-line">    <span class="code-comment">    # ← ★ after step: log pos, visualize, stop early</span></span>
+<span class="code-line">    <span class="code-property">update_output</span> <span class="code-operator">=</span> <span class="code-property">agent</span><span class="code-operator">.</span><span class="code-function">update</span>()</span>
+<span class="code-line">    <span class="code-comment">    # ← after update: log loss, save checkpoint</span></span>
+<span class="code-line">    <span class="code-property">training_hist</span><span class="code-operator">.</span><span class="code-function">append</span>(<span class="code-property">update_output</span>)</span>
+<span class="code-line">    <span class="code-property">obs</span> <span class="code-operator">=</span> <span class="code-property">obs</span>[<span class="code-operator">:</span><span class="code-number">2</span>]</span>
+<span class="code-line"><span class="code-comment"># ← AFTER: plot, save final model, summarize</span></span></code></pre>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">INSERTION GUIDE</span>
+            <div class="translation-lines">
+              <p class="tl"><strong>Before:</strong> One-time initialization — opens files, sets up renderers</p>
+              <p class="tl" style="opacity: 0.5;">reset: arena goes back to start</p>
+              <p class="tl" style="opacity: 0.5;">trim: keep only x,y</p>
+              <p class="tl" style="opacity: 0.5;">loop begins</p>
+              <p class="tl" style="opacity: 0.5;">agent chooses direction</p>
+              <p class="tl"><strong>After act:</strong> you can see the intended action before consequences</p>
+              <p class="tl" style="opacity: 0.5;">arena executes move, returns new position + reward</p>
+              <p class="tl"><strong style="color: var(--color-accent);">★ After step:</strong> best place to log position, draw trajectory, check stopping conditions</p>
+              <p class="tl" style="opacity: 0.5;">agent adjusts its weights</p>
+              <p class="tl"><strong>After update:</strong> log learning stats, save periodic checkpoints</p>
+              <p class="tl" style="opacity: 0.5;">store stats, trim obs for next cycle</p>
+              <p class="tl"><strong>After loop:</strong> post-processing, final plots, save model</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+
+      <!-- ══════════════════════════════════════════════════════════
+           SCREEN 5 — QUIZ
+           ══════════════════════════════════════════════════════════ -->
+      <div class="screen">
+        <h2 class="screen-heading animate-in">Check Your Understanding</h2>
+
+        <p class="animate-in">
+          Three practical scenarios. For each one, apply what you know about the loop's four beats
+          to reason about the right answer.
+        </p>
+
+        <div class="quiz-container animate-in" id="quiz-module3">
+
+          <!-- Q1 -->
+          <div class="quiz-question-block"
+               data-correct="c"
+               data-explanation-right="You want the new position (from env.step) but you want to log before the update happens. After env.step() gives you the new position — right where you need it."
+               data-explanation-wrong="Think about when you have the information you need. You need the new position (from env.step), but you want to log it before the update happens. That window is between step and update.">
+            <p class="quiz-question">Q1. You want to log the agent position every 100 steps. Where in the loop do you add this code?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="a" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                Before the for loop starts
+              </button>
+              <button class="quiz-option" data-value="b" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                After <code style="font-family: var(--font-mono); font-size: 0.85em;">agent.act(obs)</code>, before <code style="font-family: var(--font-mono); font-size: 0.85em;">env.step()</code>
+              </button>
+              <button class="quiz-option" data-value="c" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                After <code style="font-family: var(--font-mono); font-size: 0.85em;">env.step(action)</code>, before <code style="font-family: var(--font-mono); font-size: 0.85em;">agent.update()</code>
+              </button>
+              <button class="quiz-option" data-value="d" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                After <code style="font-family: var(--font-mono); font-size: 0.85em;">agent.update()</code>, at the end of each iteration
+              </button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <!-- Q2 -->
+          <div class="quiz-question-block"
+               data-correct="b"
+               data-explanation-right="AgentCore.obs_history stores the last N observations. The more sophisticated agents like Weber2018 use this to implement multi-step learning updates."
+               data-explanation-wrong="The AgentCore base class already has obs_history built in. It stores recent observations so subclasses can implement batch or multi-step learning.">
+            <p class="quiz-question">Q2. The simulation is slow. Your colleague says <code style="font-family: var(--font-mono); font-size: 0.85em;">obs_history</code> is a way to batch updates. Where does this already exist in the code?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="a" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                In <code style="font-family: var(--font-mono); font-size: 0.85em;">env.history</code> — the arena logs every state transition
+              </button>
+              <button class="quiz-option" data-value="b" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                In <code style="font-family: var(--font-mono); font-size: 0.85em;">agent.obs_history</code> — the agent stores past observations exactly for this purpose
+              </button>
+              <button class="quiz-option" data-value="c" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                In <code style="font-family: var(--font-mono); font-size: 0.85em;">training_hist</code> — the main loop accumulates update outputs
+              </button>
+              <button class="quiz-option" data-value="d" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                There is no built-in history mechanism
+              </button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <!-- Q3 -->
+          <div class="quiz-question-block"
+               data-correct="c"
+               data-explanation-right="validate_action() inside env.step() is responsible for detecting wall collisions. If the agent passes through walls, that is where the collision detection logic lives."
+               data-explanation-wrong="The direction the agent chooses does not cause wall-walking — the arena is supposed to block invalid moves. env.step() calls validate_action() to detect collisions, so that is where to look.">
+            <p class="quiz-question">Q3. Your agent keeps walking through walls. Which function should you investigate first?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="a" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                <code style="font-family: var(--font-mono); font-size: 0.85em;">agent.act()</code> — the model is choosing bad directions
+              </button>
+              <button class="quiz-option" data-value="b" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                <code style="font-family: var(--font-mono); font-size: 0.85em;">agent.update()</code> — the learning algorithm has a bug
+              </button>
+              <button class="quiz-option" data-value="c" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                <code style="font-family: var(--font-mono); font-size: 0.85em;">env.step()</code> and specifically <code style="font-family: var(--font-mono); font-size: 0.85em;">validate_action()</code>
+              </button>
+              <button class="quiz-option" data-value="d" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                The training loop itself — too many steps
+              </button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <div style="display: flex; gap: var(--space-3); margin-top: var(--space-6);">
+            <button class="quiz-check-btn" onclick="checkQuiz('quiz-module3')">Check Answers</button>
+            <button class="quiz-reset-btn" onclick="resetQuiz('quiz-module3')">Reset</button>
+          </div>
+
+        </div><!-- /quiz-module3 -->
+      </div><!-- /screen 5 -->
+
+    </div><!-- /module-body -->
+  </div><!-- /module-content -->
+</section>

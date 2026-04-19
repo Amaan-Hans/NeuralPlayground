@@ -1,0 +1,351 @@
+<section class="module" id="module-5" style="background: var(--color-bg)">
+  <div class="module-content">
+
+    <header class="module-header animate-in">
+      <span class="module-number">05</span>
+      <h1 class="module-title">Real Rat Data</h1>
+      <p class="module-subtitle">Nobel Prize-winning experiments as Python objects — and how to compare your model against them</p>
+    </header>
+
+    <div class="module-body">
+
+      <!-- ══════════════════════════════════════════════════════════
+           SCREEN 1 — HOOK: THE COLD CASE DETECTIVE FILE
+           ══════════════════════════════════════════════════════════ -->
+      <div class="screen">
+        <h2 class="screen-heading animate-in">The Cold Case Files</h2>
+
+        <p class="animate-in">
+          Three real experiments from the 2000s changed neuroscience forever.
+          The electrode recordings from those rat sessions are bundled into this codebase.
+          Here is how the code finds, downloads, and uses that data — and why it matters for model validation.
+        </p>
+
+        <p class="animate-in">
+          Think of the <code style="font-family: var(--font-mono); font-size: var(--text-sm); background: var(--color-bg-warm); padding: 2px 6px; border-radius: 4px;">Experiment</code> classes as cold case detective files.
+          Scientists wired real rats with electrodes, recorded exactly which neuron fired at which location,
+          and those recordings became a permanent historical record.
+          NeuralPlayground downloads, caches, and provides access to those files.
+        </p>
+
+        <p class="animate-in">
+          Experiments provide two things: real <span class="term" data-definition="In this context: the recorded trajectory of a real animal — where it was at each timestep during the experiment">behavioral data</span> trajectories
+          (so your model follows the same path a real rat took) and real neural <span class="term" data-definition="The sequence of electrical pulses a neuron fires over time — each spike is a moment when that neuron activated">spike train</span> data
+          (so you can compare firing patterns).
+          This comparison IS the scientific contribution.
+        </p>
+
+        <div class="callout callout-accent animate-in">
+          <div class="callout-icon">🏆</div>
+          <div class="callout-content">
+            <strong class="callout-title">Historical Data</strong>
+            <p>Hafting2008 and Sargolini2006 are among the most-cited papers in systems neuroscience. The electrode recordings inside this codebase are the same data that redefined how we understand spatial memory.</p>
+          </div>
+        </div>
+
+        <p class="animate-in">
+          <strong>Why should you care?</strong> When you add a new published dataset, you need to know this pattern:
+          inherit from <code style="font-family: var(--font-mono); font-size: var(--text-sm); background: var(--color-bg-warm); padding: 2px 6px; border-radius: 4px;">Experiment</code>,
+          load data via <span class="term" data-definition="A Python library that downloads and caches scientific datasets automatically — handles checksums for data integrity and re-downloads only when needed">Pooch</span>
+          from the <span class="term" data-definition="G-Node Infrastructure — a scientific data hosting service (like GitHub, but for neuroscience datasets). NeuralPlayground data lives there.">GIN repository</span>.
+        </p>
+
+        <div class="flow-steps animate-in">
+          <div class="flow-step">
+            <div class="flow-step-num">1</div>
+            <p>REAL TRAJECTORY</p>
+          </div>
+          <div class="flow-arrow">+</div>
+          <div class="flow-step">
+            <div class="flow-step-num">2</div>
+            <p>REAL SPIKES</p>
+          </div>
+          <div class="flow-arrow">=</div>
+          <div class="flow-step">
+            <div class="flow-step-num">✓</div>
+            <p>SCIENTIFIC VALIDATION</p>
+          </div>
+        </div>
+      </div>
+
+
+      <!-- ══════════════════════════════════════════════════════════
+           SCREEN 2 — CODE ↔ ENGLISH TRANSLATION
+           ══════════════════════════════════════════════════════════ -->
+      <div class="screen">
+        <h2 class="screen-heading animate-in">Replaying a Real Experiment</h2>
+
+        <p class="animate-in">
+          When you pass <code style="font-family: var(--font-mono); font-size: var(--text-sm); background: var(--color-bg-warm); padding: 2px 6px; border-radius: 4px;">use_behavioral_data=True</code>,
+          the arena stops being a generic box and becomes a precise replay of the original lab session.
+          Here is what each line does — from the experimental arena usage pattern.
+        </p>
+
+        <div class="translation-block animate-in">
+          <div class="translation-code">
+            <span class="translation-label">CODE</span>
+<pre><code><span class="code-line"><span class="code-keyword">from</span> neuralplayground.agents <span class="code-keyword">import</span> <span class="code-property">Stachenfeld2018</span></span>
+<span class="code-line"><span class="code-keyword">from</span> neuralplayground.arenas <span class="code-keyword">import</span> <span class="code-property">Sargolini2006</span></span>
+<span class="code-line"></span>
+<span class="code-line"><span class="code-property">env</span> <span class="code-operator">=</span> <span class="code-function">Sargolini2006</span>(<span class="code-property">use_behavioral_data</span><span class="code-operator">=</span><span class="code-keyword">True</span>)</span>
+<span class="code-line"><span class="code-property">agent</span> <span class="code-operator">=</span> <span class="code-function">Stachenfeld2018</span>()</span>
+<span class="code-line"></span>
+<span class="code-line"><span class="code-property">obs</span><span class="code-operator">,</span> <span class="code-property">state</span> <span class="code-operator">=</span> <span class="code-property">env</span><span class="code-operator">.</span><span class="code-function">reset</span>()</span>
+<span class="code-line"><span class="code-keyword">for</span> step <span class="code-keyword">in</span> <span class="code-function">range</span>(<span class="code-property">env</span><span class="code-operator">.</span><span class="code-property">total_number_of_steps</span>):</span>
+<span class="code-line">    <span class="code-property">action</span> <span class="code-operator">=</span> <span class="code-property">agent</span><span class="code-operator">.</span><span class="code-function">act</span>(<span class="code-property">obs</span>)</span>
+<span class="code-line">    <span class="code-property">obs</span><span class="code-operator">,</span> <span class="code-property">state</span><span class="code-operator">,</span> <span class="code-property">reward</span> <span class="code-operator">=</span> <span class="code-property">env</span><span class="code-operator">.</span><span class="code-function">step</span>(<span class="code-property">action</span>)</span>
+<span class="code-line">    <span class="code-property">agent</span><span class="code-operator">.</span><span class="code-function">update</span>()</span></code></pre>
+          </div>
+          <div class="translation-english">
+            <span class="translation-label">PLAIN ENGLISH</span>
+            <div class="translation-lines">
+              <p class="tl" style="opacity: 0.45;">import the successor representation brain model</p>
+              <p class="tl" style="opacity: 0.45;">import the arena that wraps the Sargolini experiment</p>
+              <p class="tl" style="opacity: 0.45;"></p>
+              <p class="tl">Load a virtual replica of the Sargolini lab experiment, AND load the actual rat trajectory from disk (auto-downloads if not cached)</p>
+              <p class="tl">Create the brain model — this is the theory we want to test against real data</p>
+              <p class="tl" style="opacity: 0.45;"></p>
+              <p class="tl">Place the agent at the same starting position a real rat used in the original experiment</p>
+              <p class="tl">Loop exactly as many steps as the real rat took in the experiment</p>
+              <p class="tl">Ask the model where to go next (or follow the real rat path if <span class="term" data-definition="In this context: the recorded trajectory of a real animal — where it was at each timestep during the experiment">behavioral data</span> overrides)</p>
+              <p class="tl">Move through the arena — potentially following the real rat trajectory</p>
+              <p class="tl">Let the model learn from this position, just as it would in any other arena</p>
+            </div>
+          </div>
+        </div>
+
+        <p class="animate-in" style="font-size: var(--text-sm); color: var(--color-text-secondary);">
+          The key difference from a plain arena: <code style="font-family: var(--font-mono); background: var(--color-bg-warm); padding: 2px 5px; border-radius: 4px;">env.total_number_of_steps</code> is not a setting you choose —
+          it is the exact length of the original rat recording.
+          The loop ends when the replay ends.
+        </p>
+      </div>
+
+
+      <!-- ══════════════════════════════════════════════════════════
+           SCREEN 3 — DATA FLOW ANIMATION
+           ══════════════════════════════════════════════════════════ -->
+      <div class="screen">
+        <h2 class="screen-heading animate-in">From GIN Server to Simulation</h2>
+
+        <p class="animate-in">
+          The first time you create an <code style="font-family: var(--font-mono); font-size: var(--text-sm); background: var(--color-bg-warm); padding: 2px 6px; border-radius: 4px;">Experiment</code> object,
+          it silently checks whether the data files already exist on your computer.
+          If they do not, <span class="term" data-definition="A Python library that downloads and caches scientific datasets automatically — handles checksums for data integrity and re-downloads only when needed">Pooch</span> fetches them from the
+          <span class="term" data-definition="G-Node Infrastructure — a scientific data hosting service (like GitHub, but for neuroscience datasets). NeuralPlayground data lives there.">GIN repository</span> and saves them locally.
+          Every subsequent run reads from disk instantly — no internet required.
+        </p>
+
+        <div class="flow-animation" data-steps="[
+          {&quot;highlight&quot;:&quot;flow-actor-3&quot;,&quot;label&quot;:&quot;User creates Hafting2008Data object&quot;},
+          {&quot;highlight&quot;:&quot;flow-actor-3&quot;,&quot;label&quot;:&quot;Experiment checks: is data already in ~/.NeuralPlayground/data/?&quot;},
+          {&quot;highlight&quot;:&quot;flow-actor-2&quot;,&quot;label&quot;:&quot;Cache miss — Pooch downloads from GIN repository&quot;,&quot;packet&quot;:true,&quot;from&quot;:&quot;actor-1&quot;,&quot;to&quot;:&quot;actor-2&quot;},
+          {&quot;highlight&quot;:&quot;flow-actor-2&quot;,&quot;label&quot;:&quot;Data saved to local cache (~/.NeuralPlayground/data/)&quot;},
+          {&quot;highlight&quot;:&quot;flow-actor-3&quot;,&quot;label&quot;:&quot;Experiment parses .mat files: positions and spike times&quot;},
+          {&quot;highlight&quot;:&quot;flow-actor-4&quot;,&quot;label&quot;:&quot;Arena loads real rat trajectory for simulation&quot;},
+          {&quot;highlight&quot;:&quot;flow-actor-4&quot;,&quot;label&quot;:&quot;Simulation runs: model follows the same path the rat took&quot;}
+        ]">
+          <div class="flow-actors">
+            <div class="flow-actor" id="flow-actor-1">
+              <div class="flow-actor-icon">☁️</div>
+              <span>GIN Repo</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-2">
+              <div class="flow-actor-icon">💾</div>
+              <span>Pooch Cache</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-3">
+              <div class="flow-actor-icon">🐀</div>
+              <span>Experiment</span>
+            </div>
+            <div class="flow-actor" id="flow-actor-4">
+              <div class="flow-actor-icon">🏟️</div>
+              <span>Arena</span>
+            </div>
+          </div>
+          <div class="flow-packet" id="flow-packet"></div>
+          <div class="flow-step-label" id="flow-label">Click "Next Step" to begin</div>
+          <div class="flow-controls">
+            <button class="btn flow-next-btn">Next Step</button>
+            <button class="btn flow-reset-btn">Restart</button>
+            <span class="flow-progress"></span>
+          </div>
+        </div>
+
+        <p class="animate-in" style="font-size: var(--text-sm); color: var(--color-text-secondary);">
+          The <span class="term" data-definition="A file format from MATLAB, widely used in neuroscience for storing experimental data — NeuralPlayground automatically converts these to NumPy arrays">.mat file</span> parsing step converts MATLAB-formatted recordings
+          into NumPy arrays of positions and <span class="term" data-definition="The sequence of electrical pulses a neuron fires over time — each spike is a moment when that neuron activated">spike trains</span>.
+          From that point on, the data looks like any other NumPy array — no special handling required.
+        </p>
+      </div>
+
+
+      <!-- ══════════════════════════════════════════════════════════
+           SCREEN 4 — THE THREE DATASETS
+           ══════════════════════════════════════════════════════════ -->
+      <div class="screen">
+        <h2 class="screen-heading animate-in">Three Experiments, Three Stories</h2>
+
+        <p class="animate-in">
+          Each dataset captures a different aspect of spatial cognition.
+          Together they cover the core cell types — grid cells, place cells, head direction cells —
+          that any spatial navigation model needs to explain.
+        </p>
+
+        <div class="badge-list stagger-children">
+          <div class="badge-item animate-in">
+            <code class="badge-code">Hafting2008</code>
+            <span class="badge-desc">Grid cell recordings from rat entorhinal cortex. The paper that discovered grid cells.</span>
+          </div>
+          <div class="badge-item animate-in">
+            <code class="badge-code">Sargolini2006</code>
+            <span class="badge-desc">Place cell and head direction cell recordings. Multiple open-field sessions.</span>
+          </div>
+          <div class="badge-item animate-in">
+            <code class="badge-code">Wernle2018</code>
+            <span class="badge-desc">Dynamic room merging paradigm — two rooms become one, cells remap.</span>
+          </div>
+        </div>
+
+        <p class="animate-in" style="margin-top: var(--space-8);">
+          Each dataset class exposes the same interface: a <code style="font-family: var(--font-mono); font-size: var(--text-sm); background: var(--color-bg-warm); padding: 2px 6px; border-radius: 4px;">position</code> array,
+          a <code style="font-family: var(--font-mono); font-size: var(--text-sm); background: var(--color-bg-warm); padding: 2px 6px; border-radius: 4px;">head_direction</code> array,
+          and a <code style="font-family: var(--font-mono); font-size: var(--text-sm); background: var(--color-bg-warm); padding: 2px 6px; border-radius: 4px;">recording_list</code> dataframe listing all available sessions.
+          This uniformity means you can swap datasets without changing your analysis code.
+        </p>
+
+        <p class="animate-in">
+          To validate your model: run the simulation with <code style="font-family: var(--font-mono); font-size: var(--text-sm); background: var(--color-bg-warm); padding: 2px 6px; border-radius: 4px;">use_behavioral_data=True</code>,
+          compute a <span class="term" data-definition="A 2D heatmap showing how often a neuron fires at each location in an arena — the spatial fingerprint of a single cell">rate map</span>
+          from the model's activations, then compare its
+          <span class="term" data-definition="A mathematical measure of how much a spatial pattern repeats itself — used to detect the hexagonal regularity of grid cells">spatial autocorrelation</span>
+          against the real cell's rate map.
+          A high match means your model is doing something biologically plausible.
+        </p>
+
+        <div class="step-cards stagger-children" style="margin-top: var(--space-8);">
+          <div class="step-card animate-in">
+            <div class="step-num">📥</div>
+            <div class="step-body">
+              <strong>Inherit from Experiment</strong>
+              <p>Your new class gets the <span class="term" data-definition="A Python library that downloads and caches scientific datasets automatically — handles checksums for data integrity and re-downloads only when needed">Pooch</span> wiring and standard interface for free. You only implement <code style="font-family: var(--font-mono); font-size: 0.85em;">_find_data_path()</code> and the parser.</p>
+            </div>
+          </div>
+          <div class="step-card animate-in">
+            <div class="step-num">🔗</div>
+            <div class="step-body">
+              <strong>Register the GIN URL</strong>
+              <p>Point Pooch at your dataset's <span class="term" data-definition="G-Node Infrastructure — a scientific data hosting service (like GitHub, but for neuroscience datasets). NeuralPlayground data lives there.">GIN repository</span> URL. Pooch handles download, checksum verification, and local caching automatically.</p>
+            </div>
+          </div>
+          <div class="step-card animate-in">
+            <div class="step-num">🔬</div>
+            <div class="step-body">
+              <strong>Parse to NumPy</strong>
+              <p>Convert your <span class="term" data-definition="A file format from MATLAB, widely used in neuroscience for storing experimental data — NeuralPlayground automatically converts these to NumPy arrays">.mat files</span> (or HDF5, CSV, etc.) into position arrays and <span class="term" data-definition="The sequence of electrical pulses a neuron fires over time — each spike is a moment when that neuron activated">spike train</span> arrays. The Arena class reads these directly.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+
+      <!-- ══════════════════════════════════════════════════════════
+           SCREEN 5 — QUIZ
+           ══════════════════════════════════════════════════════════ -->
+      <div class="screen">
+        <h2 class="screen-heading animate-in">Check Your Understanding</h2>
+
+        <p class="animate-in">
+          Three scenarios about working with experimental data.
+          Apply what you know about the Experiment pattern and behavioral data replay.
+        </p>
+
+        <div class="quiz-container animate-in" id="quiz-module5">
+
+          <!-- Q1 -->
+          <div class="quiz-question-block"
+               data-correct="c"
+               data-explanation-right="The Experiment pattern is: inherit from Experiment, use pooch to fetch/cache the data files, parse them into position and spike arrays. The Arena class can then use your data as behavioral ground truth."
+               data-explanation-wrong="Agents handle brain models, training loops handle the run. To add data: create a new Experiment subclass, implement _find_data_path() using pooch, and parse the raw files into the standard format.">
+            <p class="quiz-question">Q1. You have a new published dataset of rat recordings in a T-maze. What is the minimum you need to implement to add it to NeuralPlayground?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="a" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                Write a new Agent subclass
+              </button>
+              <button class="quiz-option" data-value="b" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                Modify the existing Hafting2008Data class
+              </button>
+              <button class="quiz-option" data-value="c" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                Create a new class inheriting from Experiment with data loading via pooch
+              </button>
+              <button class="quiz-option" data-value="d" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                Write a new training loop
+              </button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <!-- Q2 -->
+          <div class="quiz-question-block"
+               data-correct="b"
+               data-explanation-right="With True, the arena overrides the agent's action with the real rat trajectory. This means model and rat experienced the exact same spatial inputs — making comparison scientifically meaningful."
+               data-explanation-wrong="use_behavioral_data=True forces the agent to follow the real rat path (replaying the experiment). With False, the agent navigates freely. The forced replay makes model-data comparison more rigorous.">
+            <p class="quiz-question">Q2. A colleague runs their simulation with <code style="font-family: var(--font-mono); font-size: 0.9em;">use_behavioral_data=False</code>. How is this different from <code style="font-family: var(--font-mono); font-size: 0.9em;">use_behavioral_data=True</code>?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="a" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                The model learns faster without behavioral data
+              </button>
+              <button class="quiz-option" data-value="b" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                The model navigates randomly; with True it follows the exact path a real rat took
+              </button>
+              <button class="quiz-option" data-value="c" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                The grid score calculation is different
+              </button>
+              <button class="quiz-option" data-value="d" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                The arena walls change shape
+              </button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+          <!-- Q3 -->
+          <div class="quiz-question-block"
+               data-correct="c"
+               data-explanation-right="Pooch is a download-and-cache library. The first run triggers a download to ~/.NeuralPlayground/data/. All subsequent runs read from that local cache instantly — no network needed."
+               data-explanation-wrong="This is Pooch doing exactly what it is designed to do: download once, cache forever. The first run is slow because it downloads. Subsequent runs are fast because they read from the local disk cache.">
+            <p class="quiz-question">Q3. You run the code and get a download error on the first run, but it works on the second run. What is happening?</p>
+            <div class="quiz-options">
+              <button class="quiz-option" data-value="a" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                A bug was fixed automatically between runs
+              </button>
+              <button class="quiz-option" data-value="b" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                The first run corrupted the data; the second run redownloads
+              </button>
+              <button class="quiz-option" data-value="c" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                Pooch downloads and caches on the first run; subsequent runs read from disk
+              </button>
+              <button class="quiz-option" data-value="d" onclick="selectOption(this)">
+                <span class="quiz-option-radio"></span>
+                The GIN server was temporarily down
+              </button>
+            </div>
+            <div class="quiz-feedback"></div>
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
