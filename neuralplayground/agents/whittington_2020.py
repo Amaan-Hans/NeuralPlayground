@@ -108,7 +108,8 @@ class Whittington2020(AgentCore):
         self.state_densities = mod_kwargs["state_densities"]
 
         self.pars = copy.deepcopy(params)
-        self.tem = model.Model(self.pars)
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.tem = model.Model(self.pars, self.device)
         self.batch_size = mod_kwargs["batch_size"]
         self.use_behavioural_data = mod_kwargs["use_behavioural_data"]
         self.n_envs_save = 4
@@ -128,7 +129,7 @@ class Whittington2020(AgentCore):
         n_walk=-1 initially to account for the lack of actions at
         initialisation.
         """
-        self.tem = model.Model(self.pars)
+        self.tem = model.Model(self.pars, self.device)
         self.initialise()
         self.n_walk = -1
         self.final_model_input = None
@@ -280,7 +281,7 @@ class Whittington2020(AgentCore):
                 locations[i],
                 torch.from_numpy(np.reshape(observations, (20, 16, 45))[i]).type(
                     torch.float32
-                ),
+                ).to(self.device),
                 np.reshape(action_values, (20, 16))[i].tolist(),
             ]
             for i in range(self.pars["n_rollout"])
@@ -290,7 +291,7 @@ class Whittington2020(AgentCore):
         forward = self.tem(model_input, self.prev_iter)
 
         # Accumulate loss from forward pass
-        loss = torch.tensor(0.0)
+        loss = torch.tensor(0.0, device=self.device)
         # Make vector for plotting losses
         plot_loss = 0
         # Collect all losses / variables
@@ -306,12 +307,12 @@ class Whittington2020(AgentCore):
                 else:
                     env_visited[step.g[env_i]["id"]] = True
             step_loss = (
-                torch.tensor(0)
+                torch.tensor(0, device=self.device)
                 if not step_loss
                 else torch.mean(torch.stack(step_loss, dim=0), dim=0)
             )
             # Save all separate components of loss for monitoring
-            plot_loss = plot_loss + step_loss.detach().numpy()
+            plot_loss = plot_loss + step_loss.detach().cpu().numpy()
             # And sum all components, then add them to total loss of this step
             loss = loss + torch.sum(step_loss)
 
@@ -341,6 +342,9 @@ class Whittington2020(AgentCore):
         run_path = os.path.join(current_dir, "agent_examples", "results_sim")
         run_path = os.path.normpath(run_path)
         self.logger = utils.make_logger(run_path)
+        # Move model to device (GPU if available)
+        self.tem = self.tem.to(self.device)
+        print(f"TEM using device: {self.device}")
         # Make an ADAM optimizer for TEM
         self.adam = torch.optim.Adam(self.tem.parameters(), lr=self.pars["lr_max"])
         # Initialise whether a state has been visited for each world

@@ -17,23 +17,30 @@ class Model(torch.nn.Module):
 
     """
 
-    def __init__(self, params):
+    def __init__(self, params, device=None):
         """Initialise model with parameters.
 
         Parameters
         ----------
             params: dict of parameters, usually generated from parameters() in
             parameters.py
+            device: torch.device to run on (default: cpu)
 
         """
         # First call super class init function to set up torch.nn.Module style model and
         # inherit it's functionality
         super(Model, self).__init__()
+        # Store device for tensor creation throughout the model
+        self.device = device if device is not None else torch.device("cpu")
         # Copy hyperparameters (e.g. network sizes) from parameter dict, usually
         # generated from parameters() in parameters.py
         self.hyper = copy.deepcopy(params)
         # Create trainable parameters
         self.init_trainable()
+        # Move any plain tensors in hyper dict to device
+        for k, v in self.hyper.items():
+            if isinstance(v, torch.Tensor):
+                self.hyper[k] = v.to(self.device)
 
     def forward(self, walk, prev_iter=None, prev_M=None):
         """Forward pass of TEM model. This consists of a transition, followed
@@ -573,6 +580,7 @@ class Model(torch.nn.Module):
                         sum(self.hyper["n_p"]),
                     ),
                     dtype=torch.float,
+                    device=self.device,
                 )
             ]
             # Append inference memory only if memory is used in grounded location
@@ -592,6 +600,7 @@ class Model(torch.nn.Module):
                             sum(self.hyper["n_p"]),
                         ),
                         dtype=torch.float,
+                        device=self.device,
                     )
                 )
                 # Initialise previous abstract location by stacking abstract location
@@ -603,7 +612,7 @@ class Model(torch.nn.Module):
         # Initialise previous sensory experience with zeros, as there is no data yet for
         # temporal smoothing
         x_inf = [
-            torch.zeros((self.hyper["batch_size"], self.hyper["n_x_f"][f]))
+            torch.zeros((self.hyper["batch_size"], self.hyper["n_x_f"][f]), device=self.device)
             for f in range(self.hyper["n_f"])
         ]
         # And construct new iteration for that g, x, a, and M
@@ -645,7 +654,7 @@ class Model(torch.nn.Module):
                         g_inf[a_i, :] = self.g_init[f]
                     # Reset the sensory experience for this walk
                     for f, x_inf in enumerate(prev_iter[0].x_inf):
-                        x_inf[a_i, :] = torch.zeros(self.hyper["n_x_f"][f])
+                        x_inf[a_i, :] = torch.zeros(self.hyper["n_x_f"][f], device=self.device)
         # Return the iteration with reset parameters (or simply the empty array if
         # prev_iter was empty)
         return prev_iter
@@ -864,7 +873,7 @@ class Model(torch.nn.Module):
             shiny_locations = torch.unsqueeze(
                 torch.stack(
                     [
-                        torch.tensor(location["shiny"], dtype=torch.float)
+                        torch.tensor(location["shiny"], dtype=torch.float, device=self.device)
                         for location in locations
                         if location["shiny"] is not None
                     ]
@@ -1074,16 +1083,16 @@ class Model(torch.nn.Module):
             # appears, the action vector
             # should be all zeros. All other actions should have a 1 in the label-1
             # entry
-            a = torch.zeros((len(a_prev_step), self.hyper["n_actions"])).scatter_(
+            a = torch.zeros((len(a_prev_step), self.hyper["n_actions"]), device=self.device).scatter_(
                 1,
-                torch.clamp(torch.tensor(a_prev_step).unsqueeze(1) - 1, min=0),
-                1.0 * (torch.tensor(a_prev_step).unsqueeze(1) > 0),
+                torch.clamp(torch.tensor(a_prev_step, device=self.device).unsqueeze(1) - 1, min=0),
+                1.0 * (torch.tensor(a_prev_step, device=self.device).unsqueeze(1) > 0),
             )
         else:
             # Without static actions: each action label should become a one-hot vector
             # for that label
-            a = torch.zeros((len(a_prev_step), self.hyper["n_actions"])).scatter_(
-                1, torch.tensor(a_prev_step).unsqueeze(1), 1.0
+            a = torch.zeros((len(a_prev_step), self.hyper["n_actions"]), device=self.device).scatter_(
+                1, torch.tensor(a_prev_step, device=self.device).unsqueeze(1), 1.0
             )
         # Get vector of transition weights by feeding actions into MLP
         D_a = self.MLP_D_a([a for _ in range(self.hyper["n_f"])])
@@ -1448,7 +1457,7 @@ class Model(torch.nn.Module):
         # retrieval for low frequencies,
         # using a mask. If not specified: initialise mask as all 1s
         retrieve_it_mask = (
-            [torch.ones(sum(self.hyper["n_p"])) for _ in range(self.hyper["n_p"])]
+            [torch.ones(sum(self.hyper["n_p"]), device=self.device) for _ in range(self.hyper["n_p"])]
             if retrieve_it_mask is None
             else retrieve_it_mask
         )
@@ -1673,10 +1682,10 @@ class LSTM(torch.nn.Module):
         # If previous hidden and cell state are not provided: initialise them randomly
         if prev_hidden is None:
             hidden_state = torch.randn(
-                self.lstm.num_layers, data.shape[0], self.lstm.hidden_size
+                self.lstm.num_layers, data.shape[0], self.lstm.hidden_size, device=data.device
             )
             cell_state = torch.randn(
-                self.lstm.num_layers, data.shape[0], self.lstm.hidden_size
+                self.lstm.num_layers, data.shape[0], self.lstm.hidden_size, device=data.device
             )
             prev_hidden = (hidden_state, cell_state)
         # Run input through lstm
@@ -1701,9 +1710,10 @@ class LSTM(torch.nn.Module):
 
         """
         # Transform list of actions of each step into batch of one-hot row vectors
+        _device = next(self.lstm.parameters()).device
         actions = [
-            torch.zeros((len(step[2]), self.n_a)).scatter_(
-                1, torch.tensor(step[2]).unsqueeze(1), 1.0
+            torch.zeros((len(step[2]), self.n_a), device=_device).scatter_(
+                1, torch.tensor(step[2], device=_device).unsqueeze(1), 1.0
             )
             for step in data_in
         ]
@@ -1764,8 +1774,8 @@ class Iteration:
 
         """
         # Detach observation and all predictions
-        observation = self.x.detach().numpy()
-        predictions = [tensor.detach().numpy() for tensor in self.x_gen]
+        observation = self.x.detach().cpu().numpy()
+        predictions = [tensor.detach().cpu().numpy() for tensor in self.x_gen]
         # Did the model predict the right observation in this iteration?
         accuracy = [
             np.argmax(prediction, axis=-1) == np.argmax(observation, axis=-1)
