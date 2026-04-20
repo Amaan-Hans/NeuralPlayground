@@ -36,10 +36,11 @@ from neuralplayground.agents.whittington_2020_extras import (
 from neuralplayground.comparison import GridScorer
 
 # ── Constants ─────────────────────────────────────────────────────────────────
-CHECKPOINTS = [1, 10, 20, 30, 40, 50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000]
-N_SHOW      = 6   # cells per row in rate-map rows
-FREQ_IDX    = 0   # which TEM frequency module to visualise
-EVAL_SEED   = 42  # both agents follow the identical random walk
+CHECKPOINTS  = [1, 10, 20, 30, 40, 50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000]
+N_SHOW       = 6   # cells shown per row
+N_FREQ       = 5   # TEM frequency modules
+FREQ_NAMES   = ["Theta", "Delta", "Beta", "Gamma", "High Gamma"]
+EVAL_SEED    = 42  # both agents follow the identical random walk
 
 
 # ── Model loading ─────────────────────────────────────────────────────────────
@@ -86,69 +87,78 @@ def get_2d_cell_map(rate_maps, freq, cell_idx, room_w, room_d):
 
 # ── Figure saving ─────────────────────────────────────────────────────────────
 
+# 3 sub-rows per frequency module: grid cells, place cells, autocorrelation
+_ROWS_PER_FREQ = 3
+
 def save_figure(step, g_rates, p_rates, room_w, room_d, label, is_rl, V_table):
-    n_rows = 4 if is_rl else 3
-    fig = plt.figure(figsize=(N_SHOW * 2.2, n_rows * 2.4))
-    fig.suptitle(f"{label}  —  step {step:,}", fontsize=11, y=1.01)
-    gs = gridspec.GridSpec(n_rows, N_SHOW, figure=fig, hspace=0.55, wspace=0.25)
+    n_freq_rows = N_FREQ * _ROWS_PER_FREQ          # 15 rows for the 5 modules
+    n_rows      = n_freq_rows + (1 if is_rl else 0) # + 1 V-table row for TEM_rl
 
-    row_labels = ["Grid cells\n(freq 0)", "Place cells\n(freq 0)", "Autocorrelation"]
-    if is_rl:
-        row_labels.append("V-table")
+    fig = plt.figure(figsize=(N_SHOW * 2.2, n_rows * 1.8))
+    fig.suptitle(f"{label}  —  step {step:,}", fontsize=12, y=1.005)
 
-    for row, lbl in enumerate(row_labels):
-        fig.text(
-            0.005, 1.0 - (row + 0.5) / n_rows,
-            lbl, va="center", ha="left", rotation="vertical", fontsize=8,
-        )
-
+    gs = gridspec.GridSpec(n_rows, N_SHOW, figure=fig, hspace=0.6, wspace=0.25)
     scorer = GridScorer(room_w)
 
-    for j in range(N_SHOW):
-        g_map = get_2d_cell_map(g_rates, FREQ_IDX, j, room_w, room_d)
-        p_map = get_2d_cell_map(p_rates, FREQ_IDX, j, room_w, room_d)
+    for f, fname in enumerate(FREQ_NAMES):
+        base = f * _ROWS_PER_FREQ   # first row index for this frequency block
 
-        # Row 0 — grid cells
-        ax = fig.add_subplot(gs[0, j])
-        ax.imshow(g_map, cmap="viridis", interpolation="nearest", origin="lower")
-        ax.set_title(f"G{j+1}", fontsize=6)
-        ax.axis("off")
+        # Frequency label spanning all 3 sub-rows on the left margin
+        mid_y = 1.0 - (base + _ROWS_PER_FREQ / 2) / n_rows
+        fig.text(0.005, mid_y, fname, va="center", ha="left",
+                 rotation="vertical", fontsize=8, fontweight="bold")
 
-        # Row 1 — place cells
-        ax = fig.add_subplot(gs[1, j])
-        ax.imshow(p_map, cmap="hot", interpolation="nearest", origin="lower")
-        ax.set_title(f"P{j+1}", fontsize=6)
-        ax.axis("off")
+        for j in range(N_SHOW):
+            g_map = get_2d_cell_map(g_rates, f, j, room_w, room_d)
+            p_map = get_2d_cell_map(p_rates, f, j, room_w, room_d)
 
-        # Row 2 — autocorrelation
-        ax = fig.add_subplot(gs[2, j])
-        g_map_f = g_map.astype(float)
-        g_map_f = np.nan_to_num(g_map_f, nan=0.0)
-        try:
-            sac, props = scorer.get_scores(g_map_f)
-            gs_val = props.get("gridscore", np.nan)
-            score_str = f"{gs_val:.2f}" if np.isfinite(gs_val) else "n/a"
-        except Exception:
-            sac = g_map_f
-            score_str = "n/a"
-        ax.imshow(sac, cmap="RdBu_r", interpolation="nearest", origin="lower")
-        ax.set_title(f"GS={score_str}", fontsize=5)
-        ax.axis("off")
+            # Sub-row 0 — grid cells (viridis)
+            ax = fig.add_subplot(gs[base, j])
+            ax.imshow(g_map, cmap="viridis", interpolation="nearest", origin="lower")
+            if j == 0:
+                ax.set_ylabel("Grid", fontsize=5, labelpad=2)
+            ax.set_title(f"G{j+1}", fontsize=5)
+            ax.axis("off")
 
-    # Row 3 — V-table (TEM_rl only)
+            # Sub-row 1 — place cells (hot)
+            ax = fig.add_subplot(gs[base + 1, j])
+            ax.imshow(p_map, cmap="hot", interpolation="nearest", origin="lower")
+            if j == 0:
+                ax.set_ylabel("Place", fontsize=5, labelpad=2)
+            ax.set_title(f"P{j+1}", fontsize=5)
+            ax.axis("off")
+
+            # Sub-row 2 — spatial autocorrelation of the grid cell map
+            ax = fig.add_subplot(gs[base + 2, j])
+            g_map_f = np.nan_to_num(g_map.astype(float), nan=0.0)
+            try:
+                sac, props = scorer.get_scores(g_map_f)
+                gs_val    = props.get("gridscore", np.nan)
+                score_str = f"{gs_val:.2f}" if np.isfinite(gs_val) else "n/a"
+            except Exception:
+                sac       = g_map_f
+                score_str = "n/a"
+            ax.imshow(sac, cmap="RdBu_r", interpolation="nearest", origin="lower")
+            if j == 0:
+                ax.set_ylabel("AutoCorr", fontsize=5, labelpad=2)
+            ax.set_title(f"GS={score_str}", fontsize=4)
+            ax.axis("off")
+
+    # Final row — V-table reward propagation (TEM_rl only)
     if is_rl and V_table is not None:
-        ax_v = fig.add_subplot(gs[3, 1 : N_SHOW - 1])
+        ax_v = fig.add_subplot(gs[n_freq_rows, 1 : N_SHOW - 1])
         n_states = room_w * room_d
-        v_grid = V_table[0, :n_states].reshape(room_w, room_d)
+        # States are y_idx * n_cols + x_idx, so reshape as (n_rows, n_cols) = (room_d, room_w)
+        v_grid   = V_table[0, :n_states].reshape(room_d, room_w)
         im = ax_v.imshow(v_grid, cmap="plasma", interpolation="nearest", origin="lower")
-        rew_row = (room_w // 2)
-        rew_col = (room_d // 2)
-        ax_v.plot(rew_col, rew_row, "w*", markersize=10, label="reward")
-        ax_v.set_title("Discounted value V(s)", fontsize=8)
+        ax_v.plot(room_w // 2, room_d // 2, "w*", markersize=10)
+        ax_v.set_title("Discounted value V(s)  [★ = reward location]", fontsize=8)
         ax_v.axis("off")
         fig.colorbar(im, ax=ax_v, fraction=0.046, pad=0.04)
+        fig.text(0.005, 0.5 / n_rows, "V-table", va="center", ha="left",
+                 rotation="vertical", fontsize=8, fontweight="bold")
 
-    out_dir = os.path.join(EVAL_DIR, label)
+    out_dir  = os.path.join(EVAL_DIR, label)
     os.makedirs(out_dir, exist_ok=True)
     out_path = os.path.join(out_dir, f"step_{step:04d}.png")
     fig.savefig(out_path, dpi=100, bbox_inches="tight")

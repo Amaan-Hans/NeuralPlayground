@@ -389,8 +389,14 @@ class Whittington2020(AgentCore):
         """
         max_states = max(self.n_states)
         self.V_table = np.zeros((self.batch_size, max_states), dtype=np.float32)
-        # Place reward at the centre state of every environment
-        self.reward_states = [n // 2 for n in self.n_states]
+        # Place reward at the spatial centre of every environment.
+        # States are indexed as y_idx * n_cols + x_idx, so the centre state is
+        # (n_rows // 2) * n_cols + (n_cols // 2), not n_states // 2.
+        self.reward_states = []
+        for i in range(self.batch_size):
+            n_cols = int(self.room_widths[i] * self.state_densities[i])
+            n_rows = int(self.room_depths[i] * self.state_densities[i])
+            self.reward_states.append((n_rows // 2) * n_cols + (n_cols // 2))
 
     def _update_td_values(self, history):
         """Run one sweep of TD(0) updates over the current rollout.
