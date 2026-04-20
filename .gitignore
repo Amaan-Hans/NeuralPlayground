@@ -56,7 +56,7 @@ coverage.xml
 
 #Results
 *.pdf
-*.png
+
 
 *.egg-info
 

@@ -3,11 +3,15 @@ import torch
 from scipy.special import comb
 
 
-def parameters():
+def parameters(n_td_reward=1):
     """Set all parameters for the TEM model.
 
-    This is a function so that it can be called from other scripts, e.g.
-    to load parameters from a file.
+    Parameters
+    ----------
+    n_td_reward : int
+        Number of TD reward channels appended to the compressed observation.
+        Set to 1 (default) to enable TD learning; set to 0 for the original
+        unsupervised TEM with no reward signal.
 
     """
     params = {}
@@ -192,7 +196,7 @@ def parameters():
     # Setting this to 1 extends each frequency module's sensory representation by
     # one channel that carries the normalised TD value V(s), allowing the place-cell
     # memory to encode both sensory context AND reward proximity.
-    params["n_td_reward"] = 1
+    params["n_td_reward"] = n_td_reward
     # Discount factor for TD(0) value-function updates (higher = longer horizon)
     params["td_gamma"] = 0.95
     # Step-size for TD(0) updates of the value table V(s)
