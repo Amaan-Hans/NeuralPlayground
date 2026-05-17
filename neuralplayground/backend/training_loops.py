@@ -121,16 +121,22 @@ def tem_training_loop(agent: AgentCore, env: Environment, n_episode: int, params
     """
     training_dict = [agent.mod_kwargs, env.env_kwargs, agent.tem.hyper]
 
+    # Seed both RNGs before env.reset() so object layouts (Python random) and
+    # action sequences (numpy) are identical across the baseline and reward runs.
     if trajectory_seed is not None:
         random.seed(trajectory_seed)
         np.random.seed(trajectory_seed)
 
+    # Fixed start position [0,0] keeps both conditions comparable; random_start
+    # can be re-enabled for standard TEM training without the reward experiment.
     obs, state = env.reset(random_state=random_start, custom_state=None if random_start else [0, 0])
     for i in range(n_episode):
+        # Collect n_rollout steps, then do one gradient update.
         while agent.n_walk < params["n_rollout"]:
             actions = agent.batch_act(obs)
             obs, state, reward = env.step(actions, normalize_step=True)
         agent.update()
+        # Periodic evaluation: save plots and raw arrays every eval_interval episodes.
         if eval_fn is not None and (i + 1) % eval_interval == 0:
             eval_fn(agent, env, i + 1, eval_save_path)
     return agent, env, training_dict

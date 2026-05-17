@@ -358,18 +358,23 @@ class Whittington2020(AgentCore):
         for param_group in self.adam.param_groups:
             param_group["lr"] = self.lr
 
-        # Determine whether TD gating is active this episode
+        # TD gating is suppressed during the pretrain phase so TEM can build
+        # stable structural representations before reward modulation begins.
         gating_active = (
             self.use_reward and self.episode_count >= self.n_pretrain_episodes
         )
 
-        # Collect td_scale tensors for each rollout step (None when not gating)
+        # td_history is a list of (batch_size,) ReLU(delta) arrays, one per
+        # rollout step.  None when gating is off — the model receives a plain
+        # 3-element step tuple and behaves identically to the original TEM.
         if gating_active and len(self.td_errors) >= self.pars["n_rollout"]:
             td_history = self.td_errors[-self.pars["n_rollout"]:]
         else:
             td_history = None
 
-        # Collect all information in walk variable
+        # Collect all information in walk variable.
+        # When td_history is not None a 4th element (td_scale tensor) is appended
+        # to each step; model.forward() unpacks and passes it to hebbian().
         model_input = []
         obs_array = np.reshape(observations, (20, 16, 45))
         act_array = np.reshape(action_values, (20, 16))
@@ -380,6 +385,7 @@ class Whittington2020(AgentCore):
                 act_array[i].tolist(),
             ]
             if td_history is not None:
+                # Shape (batch_size,) — hebbian() reshapes to (batch_size,1,1)
                 step.append(
                     torch.tensor(td_history[i], dtype=torch.float32).to(self.device)
                 )
@@ -387,7 +393,7 @@ class Whittington2020(AgentCore):
 
         self.final_model_input = model_input
         self.episode_count += 1
-        # Clear consumed TD errors
+        # Trim the td_errors buffer to avoid unbounded growth.
         if self.use_reward:
             self.td_errors = self.td_errors[self.pars["n_rollout"]:]
 

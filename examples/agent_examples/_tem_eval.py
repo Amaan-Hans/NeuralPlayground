@@ -113,6 +113,15 @@ def run_eval(agent, env, episode: int, eval_save_path: str):
     p_rates = _average_second_half(p_accum, n_p_list)
     g_rates = _average_second_half(g_accum, n_g_list)
 
+    # ── Save raw arrays for post-hoc predictive-coding analysis ───────────────
+    # p_rates: list of n_f arrays, each (n_states, n_cells_f)
+    # Concatenate across frequencies -> (n_states, total_p_cells)
+    p_all = np.concatenate(p_rates, axis=1)
+    np.save(os.path.join(ep_dir, "p_rates.npy"), p_all)
+
+    if agent.use_reward and hasattr(agent, "V") and agent.V is not None:
+        np.save(os.path.join(ep_dir, "v_table.npy"), np.array(agent.V[0]))
+
     # ── 1. Trajectory ─────────────────────────────────────────────────────────
     positions = [step[0][2] for step in history_slice]
     xs = [float(p[0]) for p in positions]
