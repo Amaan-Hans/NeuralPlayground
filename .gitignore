@@ -67,3 +67,4 @@ dist/
 docs/build/
 results_sim/
 neural-playground-course/running_files
+examples/agent_examples/eval_plots.zip
