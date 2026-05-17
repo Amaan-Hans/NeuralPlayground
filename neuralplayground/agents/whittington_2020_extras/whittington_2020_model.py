@@ -72,7 +72,9 @@ class Model(torch.nn.Module):
         # Forward pass: perform a TEM iteration for each set of [place, observation,
         # action], and produce inferred and
         # generated variables for each step.
-        for g, x, a in walk:
+        for step_data in walk:
+            g, x, a = step_data[0], step_data[1], step_data[2]
+            td_scale = step_data[3] if len(step_data) > 3 else None
             # If there is no previous iteration at all: all walks are new, initialise a
             # whole new iteration object
             if steps is None:
@@ -84,7 +86,8 @@ class Model(torch.nn.Module):
                 ]
             # Perform TEM iteration using transition from previous iteration
             L, M, g_gen, p_gen, x_gen, x_logits, x_inf, g_inf, p_inf = self.iteration(
-                x, g, steps[-1].a, steps[-1].M, steps[-1].x_inf, steps[-1].g_inf
+                x, g, steps[-1].a, steps[-1].M, steps[-1].x_inf, steps[-1].g_inf,
+                td_scale=td_scale,
             )
             # Store this iteration in iteration object in steps list
             steps.append(
@@ -99,7 +102,7 @@ class Model(torch.nn.Module):
         # Return steps, which is a list of Iteration objects
         return steps
 
-    def iteration(self, x, locations, a_prev, M_prev, x_prev, g_prev):
+    def iteration(self, x, locations, a_prev, M_prev, x_prev, g_prev, td_scale=None):
         """Perform a single iteration of the TEM model. This consists of a
         transition step, followed by an inference step and a generative step.
 
@@ -141,7 +144,7 @@ class Model(torch.nn.Module):
         # for generation)
         x_gen, x_logits, p_gen = self.generative(M_prev, p_inf, g_inf, gt_gen)
         # Update generative memory with generated and inferred grounded location.
-        M = [self.hebbian(M_prev[0], torch.cat(p_inf, dim=1), torch.cat(p_gen, dim=1))]
+        M = [self.hebbian(M_prev[0], torch.cat(p_inf, dim=1), torch.cat(p_gen, dim=1), td_scale=td_scale)]
         # If using memory for grounded location inference: append inference memory
         if self.hyper[
             "use_p_inf"
@@ -155,6 +158,7 @@ class Model(torch.nn.Module):
                     torch.cat(p_inf, dim=1),
                     torch.cat(p_inf_x, dim=1),
                     do_hierarchical_connections=False,
+                    td_scale=td_scale,
                 )
             )
         # Calculate loss of this step
@@ -1498,7 +1502,7 @@ class Model(torch.nn.Module):
         return p
 
     def hebbian(
-        self, M_prev, p_inferred, p_generated, do_hierarchical_connections=True
+        self, M_prev, p_inferred, p_generated, do_hierarchical_connections=True, td_scale=None
     ):
         """Update attractor network memory by Hebbian learning of pattern. For
         example, initial attractor input can come from abstract location (g_)
@@ -1531,10 +1535,15 @@ class Model(torch.nn.Module):
         # frequencies for hierarchical retrieval
         if do_hierarchical_connections:
             M_new = M_new * torch.tensor(self.hyper["p_update_mask"], device=M_new.device)
+        # Scale eta by ReLU(td_error) when provided (LC-inspired reward modulation).
+        # td_scale has shape (batch_size,); reshape to (batch_size,1,1) for broadcasting.
+        eta = torch.tensor(self.hyper["eta"], device=M_new.device)
+        if td_scale is not None:
+            eta = eta * td_scale.view(-1, 1, 1)
         # Store grounded location in attractor network memory with weights M by Hebbian
         # learning of pattern
         M = torch.clamp(
-            torch.tensor(self.hyper["lambda"], device=M_prev.device) * M_prev + torch.tensor(self.hyper["eta"], device=M_new.device) * M_new, min=-1, max=1
+            torch.tensor(self.hyper["lambda"], device=M_prev.device) * M_prev + eta * M_new, min=-1, max=1
         )
         return M
 

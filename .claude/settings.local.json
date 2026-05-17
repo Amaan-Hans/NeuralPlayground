@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(where conda *)",
+      "Read(//c/Users/hansl/miniconda3/Scripts/**)",
+      "Read(//c/Users/hansl/anaconda3/Scripts/**)",
+      "Read(//c/ProgramData/miniconda3/Scripts/**)",
+      "Read(//c/ProgramData/anaconda3/Scripts/**)",
+      "Bash(/c/Users/hansl/miniconda3/Scripts/conda.exe run -n tem_env python -c ' *)",
+      "Bash(\"/c/Users/hansl/miniconda3/Scripts/conda.exe\" run *)",
+      "Bash(echo \"EXIT: $?\")",
+      "Bash(rm -rf \"c:/Users/hansl/Desktop/Projects/Masters_research/NeuralPlayground/examples/agent_examples/results_sim/reward_modulated\")",
+      "Bash(echo \"EXIT:$?\")"
+    ]
+  }
+}

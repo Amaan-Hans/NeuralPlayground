@@ -92,12 +92,21 @@ class Whittington2020(AgentCore):
                 contains the majority of parameters used by the model and environment
             room_width: float
                 room width specified by the environment
-                (see examples/examples/whittington_2020_example.ipynb)
             room_depth: float
                 room depth specified by the environment
-                (see examples/examples/whittington_2020_example.ipynb)
             state_density: float
                 density of agent states (should be proportional to the step-size)
+            use_reward: bool
+                If True, gate Hebbian updates by ReLU(TD error). Default False.
+            reward_location: list [x, y]
+                Coordinates of the reward site. Default [3.0, 3.0].
+            td_alpha: float
+                TD learning rate for V(s). Default 0.1.
+            td_gamma: float
+                Discount factor for TD updates. Default 0.9.
+            n_pretrain_episodes: int
+                Episodes of free exploration before reward gating is applied.
+                Default 0 (gating active from episode 1).
 
         """
         super().__init__()
@@ -122,6 +131,16 @@ class Whittington2020(AgentCore):
         self.final_model_input = None
         self.g_rates, self.p_rates = None, None
         self.prev_observations = None
+
+        # --- Reward / TD parameters ---
+        self.use_reward = mod_kwargs.get("use_reward", False)
+        self.reward_location = mod_kwargs.get("reward_location", [3.0, 3.0])
+        self.td_alpha = mod_kwargs.get("td_alpha", 0.1)
+        self.td_gamma = mod_kwargs.get("td_gamma", 0.9)
+        self.n_pretrain_episodes = mod_kwargs.get("n_pretrain_episodes", 0)
+        self.reward_state_ids = self._compute_reward_state_ids()
+        self.episode_count = 0
+
         self.reset()
 
     def reset(self):
@@ -142,6 +161,27 @@ class Whittington2020(AgentCore):
         self.prev_observations = [
             [-1, -1, [float("inf"), float("inf")]] for _ in range(self.batch_size)
         ]
+        # TD state: one V table per environment, reset on full agent reset
+        if self.use_reward:
+            self.V = [np.zeros(self.n_states[i]) for i in range(self.batch_size)]
+        self.td_errors = []   # per-step list of (batch_size,) TD error arrays
+        self.step_log = []    # per-step dicts for offline analysis
+
+    def _compute_reward_state_ids(self):
+        """Find the state index nearest to reward_location for each environment."""
+        ids = []
+        for i in range(self.batch_size):
+            rw = self.room_widths[i]
+            rd = self.room_depths[i]
+            sd = self.state_densities[i]
+            res_w = int(sd * rw)
+            res_d = int(sd * rd)
+            x_arr = np.linspace(-rw / 2 + 0.5 / sd, rw / 2 - 0.5 / sd, num=res_w)
+            y_arr = np.linspace(-rd / 2 + 0.5 / sd, rd / 2 - 0.5 / sd, num=res_d)
+            xy = np.stack(np.meshgrid(x_arr, y_arr), axis=-1)
+            diff = (xy - np.array(self.reward_location, dtype=float)) ** 2
+            ids.append(int(np.argmin(np.sum(diff, axis=-1))))
+        return ids
 
     def act(self, observation, policy_func=None):
         """The base model executes one of four action (up-down-right-left) with
@@ -221,6 +261,12 @@ class Whittington2020(AgentCore):
             if all_allowed:
                 self.walk_actions.append(self.prev_actions.copy())
                 self.obs_history.append(self.prev_observations.copy())
+                # Compute per-environment TD errors using the transition s→s'
+                if self.use_reward:
+                    td_errors_step = self._compute_and_update_td(
+                        self.prev_observations, observations
+                    )
+                    self.td_errors.append(td_errors_step)
                 for batch in range(self.pars["batch_size"]):
                     new_actions.append(self.action_policy())
                 self.prev_actions = new_actions
@@ -236,6 +282,43 @@ class Whittington2020(AgentCore):
                 self.prev_actions = new_actions
 
         return new_actions
+
+    def _compute_and_update_td(self, prev_obs, curr_obs):
+        """Compute TD error for each environment and update V tables.
+
+        Parameters
+        ----------
+        prev_obs : list of [state_id, object, pos]  length=batch_size   (s)
+        curr_obs : list of [state_id, object, pos]  length=batch_size   (s')
+
+        Returns
+        -------
+        td_scales : np.ndarray shape (batch_size,)
+            ReLU(delta) for each environment, used to gate the Hebbian update.
+        """
+        td_scales = np.zeros(self.batch_size, dtype=np.float32)
+        for i in range(self.batch_size):
+            s = prev_obs[i][0]
+            s_prime = curr_obs[i][0]
+            # Reward is delivered on arrival at the reward state
+            r = 1.0 if s_prime == self.reward_state_ids[i] else 0.0
+            delta = r + self.td_gamma * self.V[i][s_prime] - self.V[i][s]
+            self.V[i][s] += self.td_alpha * delta
+            scale = float(np.maximum(0.0, delta))
+            td_scales[i] = scale
+            self.step_log.append(
+                {
+                    "episode": self.episode_count,
+                    "env": i,
+                    "s": s,
+                    "s_prime": s_prime,
+                    "reward": r,
+                    "delta": delta,
+                    "hebbian_scale": scale,
+                    "V_s": self.V[i][s],
+                }
+            )
+        return td_scales
 
     def update(self):
         """Compute forward pass through model, updating weights, calculating
@@ -275,18 +358,38 @@ class Whittington2020(AgentCore):
         for param_group in self.adam.param_groups:
             param_group["lr"] = self.lr
 
+        # Determine whether TD gating is active this episode
+        gating_active = (
+            self.use_reward and self.episode_count >= self.n_pretrain_episodes
+        )
+
+        # Collect td_scale tensors for each rollout step (None when not gating)
+        if gating_active and len(self.td_errors) >= self.pars["n_rollout"]:
+            td_history = self.td_errors[-self.pars["n_rollout"]:]
+        else:
+            td_history = None
+
         # Collect all information in walk variable
-        model_input = [
-            [
+        model_input = []
+        obs_array = np.reshape(observations, (20, 16, 45))
+        act_array = np.reshape(action_values, (20, 16))
+        for i in range(self.pars["n_rollout"]):
+            step = [
                 locations[i],
-                torch.from_numpy(np.reshape(observations, (20, 16, 45))[i]).type(
-                    torch.float32
-                ).to(self.device),
-                np.reshape(action_values, (20, 16))[i].tolist(),
+                torch.from_numpy(obs_array[i]).type(torch.float32).to(self.device),
+                act_array[i].tolist(),
             ]
-            for i in range(self.pars["n_rollout"])
-        ]
+            if td_history is not None:
+                step.append(
+                    torch.tensor(td_history[i], dtype=torch.float32).to(self.device)
+                )
+            model_input.append(step)
+
         self.final_model_input = model_input
+        self.episode_count += 1
+        # Clear consumed TD errors
+        if self.use_reward:
+            self.td_errors = self.td_errors[self.pars["n_rollout"]:]
 
         forward = self.tem(model_input, self.prev_iter)
 

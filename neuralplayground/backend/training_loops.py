@@ -1,3 +1,7 @@
+import random
+
+import numpy as np
+
 from neuralplayground.agents import AgentCore
 from neuralplayground.arenas import Environment
 
@@ -83,7 +87,9 @@ def episode_based_training_loop(
     return agent, env, dict_training
 
 
-def tem_training_loop(agent: AgentCore, env: Environment, n_episode: int, params: dict):
+def tem_training_loop(agent: AgentCore, env: Environment, n_episode: int, params: dict,
+                      trajectory_seed: int = None, random_start: bool = False,
+                      eval_fn=None, eval_interval: int = 1000, eval_save_path: str = None):
     """Training loop for agents and environments that use a TEM-based update.
 
     Parameters
@@ -97,6 +103,10 @@ def tem_training_loop(agent: AgentCore, env: Environment, n_episode: int, params
     params : dict
         Dictionary of TEM model parameters, e.g. ``params["n_rollout"]``
         controls how many walk steps are collected before each update.
+        Optional keys:
+          ``trajectory_seed`` (int): seed np.random before trajectory begins
+          so reward and no-reward runs follow identical paths.
+          ``random_start`` (bool): if False (default), agents start at [0,0].
 
     Returns
     -------
@@ -110,12 +120,19 @@ def tem_training_loop(agent: AgentCore, env: Environment, n_episode: int, params
 
     """
     training_dict = [agent.mod_kwargs, env.env_kwargs, agent.tem.hyper]
-    obs, state = env.reset(random_state=True, custom_state=None)
+
+    if trajectory_seed is not None:
+        random.seed(trajectory_seed)
+        np.random.seed(trajectory_seed)
+
+    obs, state = env.reset(random_state=random_start, custom_state=None if random_start else [0, 0])
     for i in range(n_episode):
         while agent.n_walk < params["n_rollout"]:
             actions = agent.batch_act(obs)
             obs, state, reward = env.step(actions, normalize_step=True)
         agent.update()
+        if eval_fn is not None and (i + 1) % eval_interval == 0:
+            eval_fn(agent, env, i + 1, eval_save_path)
     return agent, env, training_dict
 
 
