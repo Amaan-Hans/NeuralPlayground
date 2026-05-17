@@ -234,7 +234,7 @@ def plot_peak_distance():
         if not checkpoints:
             continue
         fig, axs = plt.subplots(1, len(checkpoints),
-                                figsize=(5 * len(checkpoints), 4), sharey=True)
+                                figsize=(5 * len(checkpoints), 4), sharey=False)
         if len(checkpoints) == 1:
             axs = [axs]
         for ax, (ep, ep_path) in zip(axs, checkpoints):
