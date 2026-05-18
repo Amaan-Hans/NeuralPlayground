@@ -35,19 +35,19 @@ from neuralplayground.backend import SingleSim
 from neuralplayground.experiments import Sargolini2006Data
 
 # ── Flags ──────────────────────────────────────────────────────────────────────
-USE_REWARD  = True  # False = baseline, True = reward-modulated
-TEST_MODE   = True    # True = 100 episodes; False = 10 000 episodes
+USE_REWARD  = True # False = baseline, True = reward-modulated
+TEST_MODE   = False   # True = 100 episodes; False = 10 000 episodes
 # ──────────────────────────────────────────────────────────────────────────────
 
 TRAJECTORY_SEED       = 42
 N_PRETRAIN_EPISODES   = 50
 REWARD_LOCATION       = [3.0, 3.0]
 TD_ALPHA              = 0.1
-TD_GAMMA              = 0.9
+TD_GAMMA              = 0.95
 
-N_TOTAL_EPISODES  = 100   if TEST_MODE else 10_000
-N_PHASE1_EPISODES = 50    if TEST_MODE else 5_000
-EVAL_INTERVAL     = 10    if TEST_MODE else 1_000
+N_TOTAL_EPISODES  = 100   if TEST_MODE else 5_000
+N_PHASE1_EPISODES = 50    if TEST_MODE else 2_500
+EVAL_INTERVAL     = 10    if TEST_MODE else 500
 
 _condition = "reward_modulated" if USE_REWARD else "baseline"
 _suffix    = "_test" if TEST_MODE else ""
@@ -199,3 +199,27 @@ if os.path.exists(src_model):
     shutil.copy(src_model, os.path.join(save_path, "whittington_2020_model.py"))
 
 print(f"Done. Results in: {save_path}")
+
+# ── Post-hoc analysis (runs after both conditions are saved) ──────────────────
+# Only run automatically when both conditions exist so plots have both lines.
+_baseline_plots = os.path.join(os.getcwd(), "results_sim_loop" + _suffix, "baseline", "plots")
+_reward_plots   = os.path.join(os.getcwd(), "results_sim_loop" + _suffix, "reward_modulated", "plots")
+
+if os.path.isdir(_baseline_plots) and os.path.isdir(_reward_plots):
+    print("\nBoth conditions found — running predictive analysis...")
+    import tem_predictive_analysis as pa
+    pa.RESULTS_ROOT       = os.path.join(os.getcwd(), "results_sim_loop" + _suffix)
+    pa.BASELINE_DIR       = os.path.join(pa.RESULTS_ROOT, "baseline",         "plots")
+    pa.REWARD_DIR         = os.path.join(pa.RESULTS_ROOT, "reward_modulated", "plots")
+    pa.OUT_DIR            = os.path.join(pa.RESULTS_ROOT, "predictive_analysis")
+    pa.LOOP_START_EPISODE = N_PHASE1_EPISODES
+    os.makedirs(pa.OUT_DIR, exist_ok=True)
+    pa.plot_population_activity_maps()
+    pa.plot_value_correlation()
+    pa.plot_peak_distance()
+    pa.plot_grid_scores()
+    pa.plot_proximal_cell_count()
+    print(f"Analysis saved to: {pa.OUT_DIR}")
+else:
+    print(f"\nOnly one condition present — run the other condition then:")
+    print(f"  python tem_loop_predictive_analysis.py{'  --test' if TEST_MODE else ''}")

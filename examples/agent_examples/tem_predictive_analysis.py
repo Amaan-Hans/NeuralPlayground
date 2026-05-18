@@ -36,6 +36,11 @@ RESULTS_ROOT  = os.path.join(os.getcwd(), "results_sim")
 BASELINE_DIR  = os.path.join(RESULTS_ROOT, "baseline",         "plots")
 REWARD_DIR    = os.path.join(RESULTS_ROOT, "reward_modulated", "plots")
 OUT_DIR       = os.path.join(RESULTS_ROOT, "predictive_analysis")
+
+# Episode at which the square loop begins (episodes after this are "loop phase")
+LOOP_START_EPISODE  = 5000
+# Proximity threshold for counting reward-proximal cells (grid units)
+PROXIMAL_THRESHOLD  = 2.0
 os.makedirs(OUT_DIR, exist_ok=True)
 
 REWARD_LOCATION = np.array([3.0, 3.0])
@@ -325,6 +330,54 @@ def plot_grid_scores():
     print(f"Saved: {fname}")
 
 
+# ── Analysis 5: Reward-proximal cell count over loop phase ────────────────────
+
+def plot_proximal_cell_count():
+    """Count of place cells whose peak firing is within PROXIMAL_THRESHOLD grid
+    units of the reward, restricted to loop-phase checkpoints only
+    (episode > LOOP_START_EPISODE).  Compares baseline vs reward_modulated.
+
+    A growing count in the reward condition indicates cells progressively
+    reorganising their fields toward the reward site during structured traversal.
+    """
+    colours = {"baseline": "steelblue", "reward_modulated": "darkorange"}
+
+    fig, ax = plt.subplots(figsize=(8, 4))
+
+    for label, plots_dir in [("baseline", BASELINE_DIR), ("reward_modulated", REWARD_DIR)]:
+        eps = _episode_dirs(plots_dir)
+        ep_list, counts = [], []
+
+        for ep, ep_path in eps:
+            if ep <= LOOP_START_EPISODE:
+                continue                         # skip random-phase checkpoints
+            p = _load_p_rates(ep_path)
+            if p is None:
+                continue
+            peak_states = np.argmax(p, axis=0)   # (n_cells,)
+            distances   = DIST_TO_REWARD[peak_states]
+            counts.append(int(np.sum(distances <= PROXIMAL_THRESHOLD)))
+            ep_list.append(ep)
+
+        if ep_list:
+            ax.plot(ep_list, counts, "o-", color=colours[label],
+                    label=label, linewidth=2, markersize=6)
+
+    ax.axhline(0, color="gray", linestyle="--", linewidth=0.8)
+    ax.set_xlabel("Episode")
+    ax.set_ylabel(f"Cells with peak ≤ {PROXIMAL_THRESHOLD} units from reward")
+    ax.set_title(
+        f"Reward-proximal place cells during loop phase\n"
+        f"(episodes > {LOOP_START_EPISODE}, threshold = {PROXIMAL_THRESHOLD} grid units)"
+    )
+    ax.legend()
+    fig.tight_layout()
+    fname = os.path.join(OUT_DIR, "proximal_cell_count.png")
+    fig.savefig(fname, dpi=150)
+    plt.close(fig)
+    print(f"Saved: {fname}")
+
+
 # ── Run all analyses ───────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
@@ -333,4 +386,5 @@ if __name__ == "__main__":
     plot_value_correlation()
     plot_peak_distance()
     plot_grid_scores()
+    plot_proximal_cell_count()
     print(f"\nAll plots saved to: {OUT_DIR}")

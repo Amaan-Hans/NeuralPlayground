@@ -170,4 +170,5 @@ if __name__ == "__main__":
     pa.plot_value_correlation()
     pa.plot_peak_distance()
     pa.plot_grid_scores()
+    pa.plot_proximal_cell_count()
     print(f"\nAll done. Results in: {pa.OUT_DIR}")
