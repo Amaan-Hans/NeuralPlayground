@@ -68,3 +68,4 @@ docs/build/
 results_sim/
 neural-playground-course/running_files
 examples/agent_examples/eval_plots.zip
+examples/agent_examples/results_sim_loop_test

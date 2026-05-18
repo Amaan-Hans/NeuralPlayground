@@ -29,6 +29,7 @@ import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from neuralplayground.comparison import GridScorer
 
 # ── Configuration ──────────────────────────────────────────────────────────────
 RESULTS_ROOT  = os.path.join(os.getcwd(), "results_sim")
@@ -259,6 +260,71 @@ def plot_peak_distance():
         print(f"Saved: {fname}")
 
 
+# ── Analysis 4: Mean grid score over training ─────────────────────────────────
+
+def _load_g_rates(ep_path):
+    """Load g_rates.npy -> (N_STATES, total_g_cells) or None."""
+    fpath = os.path.join(ep_path, "g_rates.npy")
+    if not os.path.exists(fpath):
+        return None
+    return np.load(fpath)
+
+
+def plot_grid_scores():
+    """Mean grid score across all grid cells for both conditions over training.
+
+    For each checkpoint and each condition, every cell's rate map is reshaped
+    to (ROOM_W, ROOM_D) and scored with GridScorer.  The mean score across
+    all cells is plotted as a time series.  A rising trend in the reward
+    condition (or difference from baseline) indicates reward-modulated grid
+    cell refinement.
+    """
+    scorer = GridScorer(ROOM_W)
+    colours = {"baseline": "steelblue", "reward_modulated": "darkorange"}
+
+    fig, ax = plt.subplots(figsize=(8, 4))
+
+    for label, plots_dir in [("baseline", BASELINE_DIR), ("reward_modulated", REWARD_DIR)]:
+        eps = _episode_dirs(plots_dir)
+        ep_list, mean_scores = [], []
+
+        for ep, ep_path in eps:
+            g = _load_g_rates(ep_path)
+            if g is None:
+                continue
+
+            n_cells = g.shape[1]
+            scores = []
+            for c in range(n_cells):
+                cell_map = g[:, c].reshape(ROOM_D, ROOM_W).astype(float)
+                if cell_map.max() < 1e-8:
+                    continue
+                try:
+                    _, props = scorer.get_scores(cell_map)
+                    scores.append(props["gridscore"])
+                except Exception:
+                    pass
+
+            if scores:
+                ep_list.append(ep)
+                mean_scores.append(float(np.mean(scores)))
+
+        if ep_list:
+            ax.plot(ep_list, mean_scores, "o-", color=colours[label],
+                    label=label, linewidth=2)
+
+    ax.axhline(0, color="gray", linestyle="--", linewidth=0.8)
+    ax.set_xlabel("Episode")
+    ax.set_ylabel("Mean grid score")
+    ax.set_title("Mean grid cell score over training (env 0)")
+    ax.legend()
+    fig.tight_layout()
+    fname = os.path.join(OUT_DIR, "grid_scores.png")
+    fig.savefig(fname, dpi=150)
+    plt.close(fig)
+    print(f"Saved: {fname}")
+
+
 # ── Run all analyses ───────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
@@ -266,4 +332,5 @@ if __name__ == "__main__":
     plot_population_activity_maps()
     plot_value_correlation()
     plot_peak_distance()
+    plot_grid_scores()
     print(f"\nAll plots saved to: {OUT_DIR}")

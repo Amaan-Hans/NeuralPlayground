@@ -24,7 +24,7 @@ from neuralplayground.backend import SingleSim, tem_training_loop
 from neuralplayground.experiments import Sargolini2006Data
 
 # ── Experiment flag ────────────────────────────────────────────────────────────
-USE_REWARD = True          # Set True for reward-modulated condition
+USE_REWARD = False        # Set True for reward-modulated condition
 TRAJECTORY_SEED = 42        # Fixed seed ensures identical trajectories across conditions
 N_PRETRAIN_EPISODES = 50    # Episodes of free exploration before reward gating starts
 REWARD_LOCATION = [3.0, 3.0]  # Reward site; inside all environment bounds

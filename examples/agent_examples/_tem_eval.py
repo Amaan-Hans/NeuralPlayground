@@ -21,7 +21,7 @@ matplotlib.use("Agg")  # non-interactive: safe for long training runs
 import matplotlib.pyplot as plt
 
 FREQ_NAMES = ["Theta", "Delta", "Beta", "Gamma", "High_Gamma"]
-EVAL_STEPS = 600   # history window used for rate maps; ~600 steps covers most states
+EVAL_STEPS = 500   # history window used for rate maps
 
 
 def run_eval(agent, env, episode: int, eval_save_path: str):
@@ -118,6 +118,9 @@ def run_eval(agent, env, episode: int, eval_save_path: str):
     # Concatenate across frequencies -> (n_states, total_p_cells)
     p_all = np.concatenate(p_rates, axis=1)
     np.save(os.path.join(ep_dir, "p_rates.npy"), p_all)
+
+    g_all = np.concatenate(g_rates, axis=1)
+    np.save(os.path.join(ep_dir, "g_rates.npy"), g_all)
 
     if agent.use_reward and hasattr(agent, "V") and agent.V is not None:
         np.save(os.path.join(ep_dir, "v_table.npy"), np.array(agent.V[0]))

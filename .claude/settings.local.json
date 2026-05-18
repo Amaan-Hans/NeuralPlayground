@@ -13,7 +13,8 @@
       "Bash(echo \"EXIT:$?\")",
       "Bash(/c/Users/hansl/miniconda3/envs/tem_env/python.exe -c ' *)",
       "Bash(grep -v \"^$\")",
-      "Bash(/c/Users/hansl/miniconda3/envs/tem_env/python.exe tem_probe_eval.py)"
+      "Bash(/c/Users/hansl/miniconda3/envs/tem_env/python.exe tem_probe_eval.py)",
+      "Bash(/c/Users/hansl/miniconda3/envs/tem_env/python.exe tem_predictive_analysis.py)"
     ]
   }
 }
