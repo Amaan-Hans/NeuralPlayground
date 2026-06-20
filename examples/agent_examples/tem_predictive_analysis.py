@@ -32,13 +32,17 @@ import matplotlib.pyplot as plt
 from neuralplayground.comparison import GridScorer
 
 # ── Configuration ──────────────────────────────────────────────────────────────
-RESULTS_ROOT  = os.path.join(os.getcwd(), "results_sim")
+TEST_MODE = False    # True = read from results_sim_test/ (10-episode smoke test)
+
+_results_folder = "results_sim_test" if TEST_MODE else "results_sim"
+RESULTS_ROOT  = os.path.join(os.getcwd(), _results_folder)
 BASELINE_DIR  = os.path.join(RESULTS_ROOT, "baseline",         "plots")
 REWARD_DIR    = os.path.join(RESULTS_ROOT, "reward_modulated", "plots")
 OUT_DIR       = os.path.join(RESULTS_ROOT, "predictive_analysis")
 
-# Episode at which the square loop begins (episodes after this are "loop phase")
-LOOP_START_EPISODE  = 5000
+# Checkpoints after this episode are treated as "loop phase" for proximal cell count.
+# Set to 0 in TEST_MODE so all checkpoints are included.
+LOOP_START_EPISODE  = 0 if TEST_MODE else 1000
 # Proximity threshold for counting reward-proximal cells (grid units)
 PROXIMAL_THRESHOLD  = 2.0
 os.makedirs(OUT_DIR, exist_ok=True)

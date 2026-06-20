@@ -97,7 +97,7 @@ class Whittington2020(AgentCore):
             state_density: float
                 density of agent states (should be proportional to the step-size)
             use_reward: bool
-                If True, gate Hebbian updates by ReLU(TD error). Default False.
+                If True, gate Hebbian updates by V(x_t) from a neural value head. Default False.
             reward_location: list [x, y]
                 Coordinates of the reward site. Default [3.0, 3.0].
             td_alpha: float
@@ -141,6 +141,21 @@ class Whittington2020(AgentCore):
         self.reward_state_ids = self._compute_reward_state_ids()
         self.episode_count = 0
 
+        # --- Neural value head V(x): MLP takes augmented obs (n_x + 1 + batch_size) → scalar ---
+        # Input = concat(x_onehot [n_x], reward_flag [1], env_id one-hot [batch_size])
+        # The env one-hot lets the network learn separate V gradients per environment
+        # so that cross-environment object conflicts don't produce a near-constant output.
+        if self.use_reward:
+            n_x = self.pars["n_x"]
+            self.value_head = torch.nn.Sequential(
+                torch.nn.Linear(n_x + 1 + self.batch_size, 32),
+                torch.nn.ReLU(),
+                torch.nn.Linear(32, 1),
+            ).to(self.device)
+            self.value_optimizer = torch.optim.Adam(
+                self.value_head.parameters(), lr=self.td_alpha
+            )
+
         self.reset()
 
     def reset(self):
@@ -161,10 +176,7 @@ class Whittington2020(AgentCore):
         self.prev_observations = [
             [-1, -1, [float("inf"), float("inf")]] for _ in range(self.batch_size)
         ]
-        # TD state: one V table per environment, reset on full agent reset
-        if self.use_reward:
-            self.V = [np.zeros(self.n_states[i]) for i in range(self.batch_size)]
-        self.td_errors = []   # per-step list of (batch_size,) TD error arrays
+        self.td_errors = []   # per-step list of (batch_size,) V(x_t) gate arrays
         self.step_log = []    # per-step dicts for offline analysis
 
     def _compute_reward_state_ids(self):
@@ -283,42 +295,91 @@ class Whittington2020(AgentCore):
 
         return new_actions
 
+    def _build_aug_obs(self, obs_entry, env_idx):
+        """Build augmented observation for the value head.
+
+        Output: concat(x_onehot [n_x], reward_flag [1], env_id one-hot [batch_size])
+        shape = (n_x + 1 + batch_size,)
+
+        The env one-hot disambiguates which environment the observation comes from so
+        the shared value head can learn a separate reward-distance gradient per env.
+        Handles the dummy initial observation (state_id=-1) by substituting zeros.
+        """
+        state_id = obs_entry[0]
+        x_onehot = obs_entry[1]
+        r_flag = (
+            1.0
+            if (state_id >= 0 and state_id == self.reward_state_ids[env_idx])
+            else 0.0
+        )
+        n_x = self.pars["n_x"]
+        x_candidate = np.atleast_1d(np.asarray(x_onehot, dtype=np.float32))
+        x_arr = x_candidate if x_candidate.shape == (n_x,) else np.zeros(n_x, dtype=np.float32)
+        env_one_hot = np.zeros(self.batch_size, dtype=np.float32)
+        if 0 <= env_idx < self.batch_size:
+            env_one_hot[env_idx] = 1.0
+        return np.concatenate([x_arr, [r_flag], env_one_hot])  # (n_x + 1 + batch_size,)
+
     def _compute_and_update_td(self, prev_obs, curr_obs):
-        """Compute TD error for each environment and update V tables.
+        """Update neural value head V(x) and return ReLU(V(x_t)) as Hebbian gate.
+
+        Uses semi-gradient TD: target = r + γ·stop_grad(V(x_{t+1})).
+        The Hebbian gate is ReLU(V(x_t)) so high-value states are encoded
+        more durably into memory.
 
         Parameters
         ----------
-        prev_obs : list of [state_id, object, pos]  length=batch_size   (s)
-        curr_obs : list of [state_id, object, pos]  length=batch_size   (s')
+        prev_obs : list of [state_id, object, pos]  length=batch_size   (x_t)
+        curr_obs : list of [state_id, object, pos]  length=batch_size   (x_{t+1})
 
         Returns
         -------
-        td_scales : np.ndarray shape (batch_size,)
-            ReLU(delta) for each environment, used to gate the Hebbian update.
+        v_gates : np.ndarray shape (batch_size,)
+            ReLU(V(x_t)) for each environment, used to gate the Hebbian update.
         """
-        td_scales = np.zeros(self.batch_size, dtype=np.float32)
+        # Build augmented obs for all environments
+        x_t_np = np.stack([self._build_aug_obs(prev_obs[i], i) for i in range(self.batch_size)])
+        x_t1_np = np.stack([self._build_aug_obs(curr_obs[i], i) for i in range(self.batch_size)])
+        x_t = torch.tensor(x_t_np, dtype=torch.float32, device=self.device)
+        x_t1 = torch.tensor(x_t1_np, dtype=torch.float32, device=self.device)
+
+        rewards = torch.tensor(
+            [1.0 if curr_obs[i][0] == self.reward_state_ids[i] else 0.0
+             for i in range(self.batch_size)],
+            dtype=torch.float32, device=self.device,
+        )
+
+        # V(x_t) — gradient flows for value head update
+        V_t = self.value_head(x_t).squeeze(1)  # (batch_size,)
+
+        # V(x_{t+1}) — bootstrapped target, no gradient
+        with torch.no_grad():
+            V_t1 = self.value_head(x_t1).squeeze(1)  # (batch_size,)
+
+        # Semi-gradient TD: minimise 0.5 * ||r + γV(x') - V(x)||²
+        td_target = (rewards + self.td_gamma * V_t1).detach()
+        loss = 0.5 * torch.mean((td_target - V_t) ** 2)
+        self.value_optimizer.zero_grad()
+        loss.backward()
+        self.value_optimizer.step()
+
+        # Gate = ReLU(V(x_t)) — non-negative scale for Hebbian update
+        v_gates = torch.relu(V_t).detach().cpu().numpy().astype(np.float32)
+
         for i in range(self.batch_size):
-            s = prev_obs[i][0]
-            s_prime = curr_obs[i][0]
-            # Reward is delivered on arrival at the reward state
-            r = 1.0 if s_prime == self.reward_state_ids[i] else 0.0
-            delta = r + self.td_gamma * self.V[i][s_prime] - self.V[i][s]
-            self.V[i][s] += self.td_alpha * delta
-            scale = float(np.maximum(0.0, delta))
-            td_scales[i] = scale
             self.step_log.append(
                 {
                     "episode": self.episode_count,
                     "env": i,
-                    "s": s,
-                    "s_prime": s_prime,
-                    "reward": r,
-                    "delta": delta,
-                    "hebbian_scale": scale,
-                    "V_s": self.V[i][s],
+                    "s": prev_obs[i][0],
+                    "s_prime": curr_obs[i][0],
+                    "reward": rewards[i].item(),
+                    "V_t": V_t[i].item(),
+                    "V_t1": V_t1[i].item(),
+                    "hebbian_scale": float(v_gates[i]),
                 }
             )
-        return td_scales
+        return v_gates
 
     def update(self):
         """Compute forward pass through model, updating weights, calculating
@@ -364,7 +425,7 @@ class Whittington2020(AgentCore):
             self.use_reward and self.episode_count >= self.n_pretrain_episodes
         )
 
-        # td_history is a list of (batch_size,) ReLU(delta) arrays, one per
+        # td_history is a list of (batch_size,) ReLU(V(x_t)) arrays, one per
         # rollout step.  None when gating is off — the model receives a plain
         # 3-element step tuple and behaves identically to the original TEM.
         if gating_active and len(self.td_errors) >= self.pars["n_rollout"]:
@@ -480,6 +541,13 @@ class Whittington2020(AgentCore):
         )
         with open(os.path.join(os.path.dirname(save_path), "agent_hyper"), "wb") as fp:
             pickle.dump(self.tem.hyper, fp, pickle.HIGHEST_PROTOCOL)
+
+        if self.use_reward and hasattr(self, "value_head"):
+            pickle.dump(
+                self.value_head.state_dict(),
+                open(os.path.join(os.path.dirname(save_path), "value_head"), "wb"),
+                pickle.HIGHEST_PROTOCOL,
+            )
 
         script_dir = os.path.dirname(os.path.abspath(__file__))
         source_file_path = os.path.join(

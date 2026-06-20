@@ -23,18 +23,20 @@ from neuralplayground.arenas import BatchEnvironment, DiscreteObjectEnvironment
 from neuralplayground.backend import SingleSim, tem_training_loop
 from neuralplayground.experiments import Sargolini2006Data
 
-# ── Experiment flag ────────────────────────────────────────────────────────────
-USE_REWARD = False        # Set True for reward-modulated condition
-TRAJECTORY_SEED = 42        # Fixed seed ensures identical trajectories across conditions
-N_PRETRAIN_EPISODES = 50    # Episodes of free exploration before reward gating starts
-REWARD_LOCATION = [3.0, 3.0]  # Reward site; inside all environment bounds
-TD_ALPHA = 0.1              # TD learning rate
-TD_GAMMA = 0.9              # TD discount factor
+# ── Experiment flags ───────────────────────────────────────────────────────────
+USE_REWARD          = False      # False = baseline, True = TEM-R (V(x)-gated)
+TEST_MODE           = False     # True = 10-episode smoke test (quick sanity check)
+TRAJECTORY_SEED     = 42          # Fixed seed — keep identical across conditions
+N_PRETRAIN_EPISODES = 50          # Episodes of unmodulated exploration before gating
+REWARD_LOCATION     = [3.0, 3.0]  # Reward site; inside all environment bounds
+TD_ALPHA            = 0.1         # Value head learning rate
+TD_GAMMA            = 0.95         # TD discount factor
 # ──────────────────────────────────────────────────────────────────────────────
 
 _condition = "reward_modulated" if USE_REWARD else "baseline"
 simulation_id = f"TEM_{_condition}_sim"
-save_path = os.path.join(os.getcwd(), "results_sim", _condition)
+_results_root = "results_sim_test" if TEST_MODE else "results_sim"
+save_path = os.path.join(os.getcwd(), _results_root, _condition)
 agent_class = Whittington2020
 env_class = BatchEnvironment
 training_loop = tem_training_loop
@@ -117,13 +119,16 @@ agent_params = {
     "n_pretrain_episodes": N_PRETRAIN_EPISODES,
 }
 
+_n_episode    = 10   if TEST_MODE else 5000
+_eval_interval = 2   if TEST_MODE else 1000
+
 training_loop_params = {
-    "n_episode": 10000,
+    "n_episode": _n_episode,
     "params": full_agent_params,
     "trajectory_seed": TRAJECTORY_SEED,
     "random_start": False,
     "eval_fn": run_eval,
-    "eval_interval": 1000,
+    "eval_interval": _eval_interval,
     "eval_save_path": save_path,
 }
 

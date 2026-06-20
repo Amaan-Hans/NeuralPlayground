@@ -70,3 +70,7 @@ neural-playground-course/running_files
 examples/agent_examples/eval_plots.zip
 examples/agent_examples/results_sim_loop_test
 examples/agent_examples/results_sim_loop/
+neuralplayground/agents/whittington_2020.py
+examples/agent_examples/results_sim_test/baseline/
+
+examples/agent_examples/results_sim_test/reward_modulated/

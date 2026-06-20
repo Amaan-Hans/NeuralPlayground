@@ -122,8 +122,24 @@ def run_eval(agent, env, episode: int, eval_save_path: str):
     g_all = np.concatenate(g_rates, axis=1)
     np.save(os.path.join(ep_dir, "g_rates.npy"), g_all)
 
-    if agent.use_reward and hasattr(agent, "V") and agent.V is not None:
-        np.save(os.path.join(ep_dir, "v_table.npy"), np.array(agent.V[0]))
+    if agent.use_reward and hasattr(agent, "value_head"):
+        # Build state→obs map from the full obs history (not just the 500-step window)
+        # so that every visited state gets a V value, including the reward state.
+        state_to_obs = {}
+        for step in real_history:
+            sid = step[0][0]
+            if 0 <= sid < n_states:
+                state_to_obs[sid] = step[0]
+
+        v_per_state = np.zeros(n_states, dtype=np.float32)
+        agent.value_head.eval()
+        with torch.no_grad():
+            for sid, obs_entry in state_to_obs.items():
+                x_aug = agent._build_aug_obs(obs_entry, 0)
+                x_t = torch.tensor(x_aug, dtype=torch.float32, device=agent.device).unsqueeze(0)
+                v_per_state[sid] = agent.value_head(x_t).item()
+        agent.value_head.train()
+        np.save(os.path.join(ep_dir, "v_table.npy"), v_per_state)
 
     # ── 1. Trajectory ─────────────────────────────────────────────────────────
     positions = [step[0][2] for step in history_slice]
@@ -146,19 +162,17 @@ def run_eval(agent, env, episode: int, eval_save_path: str):
     plt.close(fig)
 
     # ── 2. Value map (reward condition only) ──────────────────────────────────
-    if agent.use_reward and hasattr(agent, "V") and agent.V is not None:
-        v_flat = agent.V[0]
-        if len(v_flat) == room_d * room_w:
-            v_grid = np.reshape(v_flat, (room_d, room_w))
-            fig, ax = plt.subplots(figsize=(6, 5))
-            im = ax.imshow(v_grid, origin="lower", cmap="hot", aspect="auto")
-            plt.colorbar(im, ax=ax, label="V(s)")
-            ax.set_title(f"Value Function V(s) – env 0 – episode {episode}")
-            ax.set_xlabel("x bin")
-            ax.set_ylabel("y bin")
-            fig.tight_layout()
-            fig.savefig(os.path.join(ep_dir, "value_map.png"), dpi=150)
-            plt.close(fig)
+    if agent.use_reward and hasattr(agent, "value_head") and n_states == room_d * room_w:
+        v_grid = np.reshape(v_per_state, (room_d, room_w))
+        fig, ax = plt.subplots(figsize=(6, 5))
+        im = ax.imshow(v_grid, origin="lower", cmap="hot", aspect="auto")
+        plt.colorbar(im, ax=ax, label="V(x)")
+        ax.set_title(f"Value Function V(x) – env 0 – episode {episode}")
+        ax.set_xlabel("x bin")
+        ax.set_ylabel("y bin")
+        fig.tight_layout()
+        fig.savefig(os.path.join(ep_dir, "value_map.png"), dpi=150)
+        plt.close(fig)
 
     # ── 3 & 4. Place cell and Grid cell rate maps ─────────────────────────────
     _save_rate_maps(p_rates, n_p_list, room_w, room_d, ep_dir, "place_cells", episode)
