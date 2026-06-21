@@ -4,6 +4,7 @@ Called every eval_interval episodes from tem_training_loop.
 Produces plots for environment 0 only:
   - trajectory.png
   - value_map.png          (reward condition only)
+  - object_value_map.png   (reward condition only)
   - place_cells_<freq>.png (one per frequency module)
   - grid_cells_<freq>.png  (one per frequency module)
 
@@ -18,6 +19,7 @@ import numpy as np
 import torch
 
 matplotlib.use("Agg")  # non-interactive: safe for long training runs
+import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 
 FREQ_NAMES = ["Theta", "Delta", "Beta", "Gamma", "High_Gamma"]
@@ -61,6 +63,19 @@ def run_eval(agent, env, episode: int, eval_save_path: str):
     locations_seq = [[{"id": step[0][0], "shiny": None}] for step in history_slice]
     obs_seq = np.array([step[0][1] for step in history_slice], dtype=np.float32)
 
+    # V(s) reaches TEM via Model.inf_p's f_v bias, passed as a separate
+    # model_input element (never concatenated onto the observation) — mirrors
+    # agent._value_for_history used during training.
+    v_seq = None
+    if agent.use_reward and agent.td is not None:
+        v_table = agent.td.V[0]
+        v_max = float(np.max(v_table))
+        v_seq = np.zeros(obs_seq.shape[0], dtype=np.float32)
+        for i in range(obs_seq.shape[0]):
+            sid = history_slice[i][0][0]
+            v_t = float(v_table[sid]) if 0 <= sid < v_table.shape[0] else 0.0
+            v_seq[i] = v_t / v_max if v_max > 0 else 0.0
+
     action_values = agent.step_to_actions(walk_slice)
     action_array = np.reshape(action_values, (n_steps, 16))[:, 0]
 
@@ -72,6 +87,12 @@ def run_eval(agent, env, episode: int, eval_save_path: str):
         ]
         for i in range(n_steps)
     ]
+    if v_seq is not None:
+        for i in range(n_steps):
+            model_input[i].append(None)  # td_scale slot (Hebbian gating) - unused
+            model_input[i].append(
+                torch.tensor([v_seq[i]], dtype=torch.float32).to(agent.device)
+            )
 
     # ── Forward pass (no gradient, restore batch_size afterwards) ─────────────
     saved_batch_size = agent.tem.hyper.get("batch_size", 16)
@@ -122,23 +143,10 @@ def run_eval(agent, env, episode: int, eval_save_path: str):
     g_all = np.concatenate(g_rates, axis=1)
     np.save(os.path.join(ep_dir, "g_rates.npy"), g_all)
 
-    if agent.use_reward and hasattr(agent, "value_head"):
-        # Build state→obs map from the full obs history (not just the 500-step window)
-        # so that every visited state gets a V value, including the reward state.
-        state_to_obs = {}
-        for step in real_history:
-            sid = step[0][0]
-            if 0 <= sid < n_states:
-                state_to_obs[sid] = step[0]
-
-        v_per_state = np.zeros(n_states, dtype=np.float32)
-        agent.value_head.eval()
-        with torch.no_grad():
-            for sid, obs_entry in state_to_obs.items():
-                x_aug = agent._build_aug_obs(obs_entry, 0)
-                x_t = torch.tensor(x_aug, dtype=torch.float32, device=agent.device).unsqueeze(0)
-                v_per_state[sid] = agent.value_head(x_t).item()
-        agent.value_head.train()
+    if agent.use_reward and agent.td is not None:
+        # V is keyed directly by state id, so the table already *is* the
+        # per-state value array — no per-step obs lookup needed.
+        v_per_state = np.array(agent.td.V[0][:n_states], dtype=np.float32)
         np.save(os.path.join(ep_dir, "v_table.npy"), v_per_state)
 
     # ── 1. Trajectory ─────────────────────────────────────────────────────────
@@ -162,16 +170,62 @@ def run_eval(agent, env, episode: int, eval_save_path: str):
     plt.close(fig)
 
     # ── 2. Value map (reward condition only) ──────────────────────────────────
-    if agent.use_reward and hasattr(agent, "value_head") and n_states == room_d * room_w:
+    if agent.use_reward and agent.td is not None and n_states == room_d * room_w:
         v_grid = np.reshape(v_per_state, (room_d, room_w))
         fig, ax = plt.subplots(figsize=(6, 5))
         im = ax.imshow(v_grid, origin="lower", cmap="hot", aspect="auto")
-        plt.colorbar(im, ax=ax, label="V(x)")
-        ax.set_title(f"Value Function V(x) – env 0 – episode {episode}")
+        plt.colorbar(im, ax=ax, label="V(s)")
+        ax.set_title(f"Value Function V(s) – env 0 – episode {episode}")
         ax.set_xlabel("x bin")
         ax.set_ylabel("y bin")
         fig.tight_layout()
         fig.savefig(os.path.join(ep_dir, "value_map.png"), dpi=150)
+        plt.close(fig)
+
+        # ── 2b. Object identity overlaid on V(s) ───────────────────────────────
+        # V is now keyed by physical state, not object id, specifically so
+        # that states sharing the same object (lime boxes) can carry
+        # *different* values depending on grid distance from the reward —
+        # this plot is the direct check of whether that differentiation is
+        # actually happening (vs. the lime-boxed states all looking similar,
+        # which would mean the object identity is still dominating).
+        object_layout = env.environments[0].objects          # (n_states, n_objects) one-hot
+        object_ids_per_state = np.argmax(object_layout, axis=1)
+        obj_grid = np.reshape(object_ids_per_state, (room_d, room_w))
+
+        reward_state_id = agent.reward_state_ids[0]
+        reward_object_id = int(object_ids_per_state[reward_state_id])
+        same_object_mask = np.reshape(
+            object_ids_per_state == reward_object_id, (room_d, room_w)
+        )
+
+        fig, ax = plt.subplots(figsize=(7, 6))
+        im = ax.imshow(v_grid, origin="lower", cmap="hot", aspect="auto")
+        plt.colorbar(im, ax=ax, label="V(o)")
+
+        for row in range(room_d):
+            for col in range(room_w):
+                ax.text(
+                    col, row, str(int(obj_grid[row, col])),
+                    ha="center", va="center", fontsize=6, color="cyan",
+                )
+                if same_object_mask[row, col]:
+                    ax.add_patch(
+                        mpatches.Rectangle(
+                            (col - 0.5, row - 0.5), 1, 1,
+                            fill=False, edgecolor="lime", linewidth=2,
+                        )
+                    )
+
+        ax.set_title(
+            f"Object id (cyan text) + V(s) heatmap – env 0 – episode {episode}\n"
+            f"lime boxes = every state sharing the reward object (id {reward_object_id}) — "
+            f"now expected to differ"
+        )
+        ax.set_xlabel("x bin")
+        ax.set_ylabel("y bin")
+        fig.tight_layout()
+        fig.savefig(os.path.join(ep_dir, "object_value_map.png"), dpi=150)
         plt.close(fig)
 
     # ── 3 & 4. Place cell and Grid cell rate maps ─────────────────────────────

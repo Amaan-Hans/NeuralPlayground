@@ -191,6 +191,11 @@ def parameters():
     params["n_x_f"] = [params["n_x_c"] for _ in range(params["n_f"])]
     # Neurons for hippocampal grounded location p for each frequency
     params["n_p"] = [g * x for g, x in zip(params["n_g_subsampled"], params["n_x_f"])]
+    # TEM-R: if True, Model creates per-frequency Linear(1, n_p[f]) layers (f_v) that
+    # add a learned bias to mu_p in inf_p(), driven by an external scalar value signal
+    # v passed in through the walk's 5th step element. Does not touch n_x/n_x_c/x at
+    # all. Set by the agent (Whittington2020.__init__), not meant to be hand-edited.
+    params["use_value_bias"] = False
     # Initial frequencies of each module. For ease of interpretation (higher number =
     # higher
     #   frequency) this is 1 - the frequency as James uses it

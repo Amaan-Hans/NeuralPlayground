@@ -32,7 +32,7 @@ import matplotlib.pyplot as plt
 from neuralplayground.comparison import GridScorer
 
 # ── Configuration ──────────────────────────────────────────────────────────────
-TEST_MODE = False    # True = read from results_sim_test/ (10-episode smoke test)
+TEST_MODE = os.environ.get("TEM_TEST_MODE", "0") == "1"  # True = read from results_sim_test/
 
 _results_folder = "results_sim_test" if TEST_MODE else "results_sim"
 RESULTS_ROOT  = os.path.join(os.getcwd(), _results_folder)

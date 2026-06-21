@@ -1,5 +1,15 @@
 # Results Interpretation: LC-Inspired Reward-Modulated TEM
 
+> **STALE — architecture superseded.** These results were produced under the
+> earlier neural-value-head / Hebbian-gating design (`V(x)` from an MLP gating
+> `η` in the Hebbian update; see "Superseded design" in `experiment_changes.md`).
+> The current codebase instead uses a tabular, object-keyed TD value appended
+> to TEM's observation, with the Hebbian update left unmodulated. None of the
+> mechanistic claims below (gating schedule, `value_head`, hyperparameter
+> tuning advice) apply to the current code — this file is kept only as a
+> historical record of the prior experiment. Re-run `run_full_experiment.py`
+> and write a fresh interpretation once new results are in.
+
 **Experiment date:** May 2026
 **Training:** 10 000 episodes × 20 steps/episode = 200 000 steps per condition
 **Conditions:** Baseline TEM (no reward) vs Reward-modulated TEM (TD-gated Hebbian)

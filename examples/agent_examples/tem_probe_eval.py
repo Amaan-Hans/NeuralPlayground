@@ -145,8 +145,6 @@ def probe_condition(condition: str):
         # Reset n_walk after each rollout so the collection loop continues
         if agent.n_walk >= n_rollout:
             agent.n_walk = 0
-            if agent.use_reward:
-                agent.td_errors = agent.td_errors[n_rollout:]
             episode += 1
             if episode % 50 == 0:
                 phase = "loop" if steps_taken >= N_RANDOM_STEPS else "random"

@@ -4,8 +4,9 @@
 the hippocampus that learns to navigate a series of environments and
 solve a series of tasks.
 
-Set USE_REWARD = True for the LC-inspired reward-modulated condition.
-Set USE_REWARD = False for the baseline (no reward gating) condition.
+Set USE_REWARD = True for the TEM-R condition (TD-learned object value V(o)
+appended to the observation vector fed into TEM).
+Set USE_REWARD = False for the baseline (unmodified observation) condition.
 Both conditions use the same trajectory seed so paths are identical.
 
 """
@@ -24,12 +25,14 @@ from neuralplayground.backend import SingleSim, tem_training_loop
 from neuralplayground.experiments import Sargolini2006Data
 
 # ── Experiment flags ───────────────────────────────────────────────────────────
-USE_REWARD          = False      # False = baseline, True = TEM-R (V(x)-gated)
-TEST_MODE           = False     # True = 10-episode smoke test (quick sanity check)
+# Env-var overrides (TEM_USE_REWARD / TEM_TEST_MODE) let run_full_experiment.py
+# drive both conditions from one script without editing this file; manual edits
+# of the literals below still work for one-off interactive runs.
+USE_REWARD          = os.environ.get("TEM_USE_REWARD", "0") == "1"      # False = baseline, True = TEM-R (V(o) appended to obs)
+TEST_MODE           = os.environ.get("TEM_TEST_MODE", "0") == "1"     # True = 10-episode smoke test (quick sanity check)
 TRAJECTORY_SEED     = 42          # Fixed seed — keep identical across conditions
-N_PRETRAIN_EPISODES = 50          # Episodes of unmodulated exploration before gating
 REWARD_LOCATION     = [3.0, 3.0]  # Reward site; inside all environment bounds
-TD_ALPHA            = 0.1         # Value head learning rate
+TD_ALPHA            = 0.1         # Tabular value-table learning rate
 TD_GAMMA            = 0.95         # TD discount factor
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -43,6 +46,9 @@ training_loop = tem_training_loop
 
 params = parameters.parameters()
 full_agent_params = params.copy()
+# TEM-R no longer widens n_x: V(s) reaches TEM through Model.inf_p's f_v bias
+# (set via agent_params["use_reward"] below), not by appending to the
+# observation. n_x/n_x_c stay at their baseline values in both conditions.
 
 arena_x_limits = [
     [-5, 5],
@@ -116,7 +122,6 @@ agent_params = {
     "reward_location": REWARD_LOCATION,
     "td_alpha": TD_ALPHA,
     "td_gamma": TD_GAMMA,
-    "n_pretrain_episodes": N_PRETRAIN_EPISODES,
 }
 
 _n_episode    = 10   if TEST_MODE else 5000

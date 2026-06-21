@@ -75,6 +75,7 @@ class Model(torch.nn.Module):
         for step_data in walk:
             g, x, a = step_data[0], step_data[1], step_data[2]
             td_scale = step_data[3] if len(step_data) > 3 else None
+            v = step_data[4] if len(step_data) > 4 else None
             # If there is no previous iteration at all: all walks are new, initialise a
             # whole new iteration object
             if steps is None:
@@ -87,7 +88,7 @@ class Model(torch.nn.Module):
             # Perform TEM iteration using transition from previous iteration
             L, M, g_gen, p_gen, x_gen, x_logits, x_inf, g_inf, p_inf = self.iteration(
                 x, g, steps[-1].a, steps[-1].M, steps[-1].x_inf, steps[-1].g_inf,
-                td_scale=td_scale,
+                td_scale=td_scale, v=v,
             )
             # Store this iteration in iteration object in steps list
             steps.append(
@@ -102,7 +103,7 @@ class Model(torch.nn.Module):
         # Return steps, which is a list of Iteration objects
         return steps
 
-    def iteration(self, x, locations, a_prev, M_prev, x_prev, g_prev, td_scale=None):
+    def iteration(self, x, locations, a_prev, M_prev, x_prev, g_prev, td_scale=None, v=None):
         """Perform a single iteration of the TEM model. This consists of a
         transition step, followed by an inference step and a generative step.
 
@@ -136,7 +137,7 @@ class Model(torch.nn.Module):
         # Also keep filtered sensory observation (x_inf), and retrieved grounded
         # location p_inf_x
         x_inf, g_inf, p_inf_x, p_inf = self.inference(
-            x, locations, M_prev, x_prev, gt_inf
+            x, locations, M_prev, x_prev, gt_inf, v=v
         )
         # Run generative model: since generative model is only used for training
         # purposes, it will generate from
@@ -166,7 +167,7 @@ class Model(torch.nn.Module):
         # Return all iteration values
         return L, M, gt_gen, p_gen, x_gen, x_logits, x_inf, g_inf, p_inf
 
-    def inference(self, x, locations, M_prev, x_prev, g_gen):
+    def inference(self, x, locations, M_prev, x_prev, g_gen, v=None):
         """Perform inference step of the TEM model.
 
         Parameters
@@ -209,7 +210,7 @@ class Model(torch.nn.Module):
         # Prepare abstract location for input to memory by downsampling and weighting
         g_ = self.g2g_(g)
         # Infer grounded location from sensory experience and inferred abstract location
-        p = self.inf_p(x_, g_)
+        p = self.inf_p(x_, g_, v=v)
         # Return variables in order that they were created
         return x_f, g, p_x, p
 
@@ -548,6 +549,16 @@ class Model(torch.nn.Module):
             self.hyper["n_x"],
             hidden_dim=20 * self.hyper["n_x_c"],
         )
+        # TEM-R: per-frequency linear layers projecting an external scalar value
+        # signal v (e.g. a learned state value, not part of the sensory pathway)
+        # into a bias added to mu_p in inf_p(). Only created when use_value_bias is
+        # set, so the baseline model's parameter count/checkpoint shape is
+        # unaffected. Deliberately does not touch n_x/n_x_c/x or any of the
+        # combinatorial two-hot/W_tile machinery - see inf_p() for where it's used.
+        if self.hyper.get("use_value_bias", False):
+            self.f_v = torch.nn.ModuleList(
+                [torch.nn.Linear(1, self.hyper["n_p"][f]) for f in range(self.hyper["n_f"])]
+            )
 
     def init_iteration(self, g, x, a, M):
         """Initialise a new iteration of the TEM model.
@@ -946,7 +957,7 @@ class Model(torch.nn.Module):
         # previous abstract location
         return g
 
-    def inf_p(self, x_, g_):
+    def inf_p(self, x_, g_, v=None):
         """Infer grounded location from sensory experience and inferred
         abstract location for each module.
 
@@ -954,6 +965,11 @@ class Model(torch.nn.Module):
         ----------
             x_: sensory input to memory
             g_: abstract (grid cell) locations
+            v: optional external scalar value signal, shape (batch_size,) or
+            (batch_size, 1). TEM-R only (self.hyper["use_value_bias"]=True) -
+            when not None, projected per frequency module through f_v and
+            added to mu_p as a learned bias. Does not touch x_/g_ or any
+            sensory-pathway machinery.
 
         Returns
         -------
@@ -963,11 +979,15 @@ class Model(torch.nn.Module):
         # Infer grounded location from sensory experience and inferred abstract location
         # for each module
         p = []
+        if v is not None and v.dim() == 1:
+            v = v.unsqueeze(1)
         # Use the same transformation for each frequency module: leaky relu for sparsity
         for f in range(self.hyper["n_f"]):
             mu_p = self.f_p(g_[f] * x_[f])  # This is element-wise multiplication
             # Unclear from paper (typo?). Some undefined function f that takes two
             # arguments: f(f_n(x),g)
+            if v is not None and self.hyper.get("use_value_bias", False):
+                mu_p = mu_p + self.f_v[f](v)
             sigma_p = 0
             # Either sample inferred grounded location or just take mean
             if self.hyper["do_sample"]:

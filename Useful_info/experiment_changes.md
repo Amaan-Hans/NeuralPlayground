@@ -1,52 +1,85 @@
-# Experiment Changes: TEM-R — Reward Observation + TD Value Gating
+# Experiment Changes: TEM-R — State-Keyed TD Value via Place-Cell Bias
 
 ## Overview
 
-Two conditions are compared: **baseline TEM** (no reward) and **TEM-R** (reward-modulated
-TEM). Both conditions follow identical trajectories (same seed), start at `[0,0]`, and
-are evaluated every 1000 episodes with plots and raw data saved for post-hoc analysis.
-Each condition runs for **5000 episodes**.
+Two conditions are compared: **baseline TEM** (no reward) and **TEM-R** (value-
+biased TEM). Both conditions follow identical trajectories (same seed), start
+at `[0,0]`, and are evaluated every 1000 episodes with plots and raw data saved
+for post-hoc analysis. Each condition runs for **5000 episodes**.
+
+> This document supersedes three earlier designs: a neural value head that
+> gated the Hebbian update, a tabular value head keyed by object identity, and
+> a tabular value keyed by state but concatenated onto the observation `x`.
+> All three have been fully removed — see "Superseded designs" at the bottom.
 
 ### Baseline TEM (no changes to original TEM)
 - Observation `x`: environmental features only (45-dim object one-hot)
-- Hebbian update (uniform, no gating):
-  `M = λM + η(p − p̂)(p + p̂)ᵀ`
+- Hebbian update (uniform, unmodulated): `M = λM + η(p − p̂)(p + p̂)ᵀ`
 
-### TEM-R (three changes)
+### TEM-R (current design)
 
-**Change 1 — Extend observation x**
-A reward indicator scalar and a one-hot environment identity are appended to `x` before
-being fed to the value head:
-```
-x_aug = concat(x_onehot [45], reward_flag [1], env_id_onehot [16])   →   shape (62,)
-```
-`reward_flag = 1` if the current state is the reward location, `0` elsewhere.
-`env_id_onehot` is a 16-dim one-hot that tells the shared value head which of the 16
-parallel environments this observation came from.  Without it, the same object cue
-would appear at different reward-distances in different environments, producing
-conflicting TD gradients that average to a near-constant V output.
-TEM itself still processes the original 45-dim `x` (architecture unchanged).
+**Change 1 — Tabular TD value head, indexed by physical grid state**
 
-**Change 2 — Neural TD value head**
-A small MLP takes `x_aug` as input and outputs a scalar `V(xₜ)`:
-```
-value_head: Linear(62→32) → ReLU → Linear(32→1)
-```
-Updated at every step via semi-gradient TD:
-```
-δₜ = rₜ + γ · stop_grad(V(x_{t+1})) − V(xₜ)
-loss = 0.5 · δₜ²   (over batch of 16 environments)
-```
-Separate Adam optimiser with `lr = td_alpha`.  V is bootstrapped from the
-raw observation so the head learns which sensory states predict future reward
-without any explicit state-index lookup.
+A lookup table `V[s]`, one array per environment sized to that environment's
+actual state count (100/64/100/144 depending on room size — `agent.n_states`),
+indexed by **state id** rather than object identity. Since there are only 45
+objects spread across up to 144 states per environment, many states are
+indistinguishable by their sensory object alone (see `how_to_run.md`'s note on
+object repetition). Keying `V` by state id breaks that ambiguity: two states
+holding the identical object can still carry different values depending on
+their own distance from the reward.
 
-**Change 3 — Gate Hebbian update by V(xₜ)**
+Updated via plain TD(0) every accepted step in `batch_act()`:
 ```
-M = λM + η · ReLU(V(xₜ)) · (p − p̂)(p + p̂)ᵀ
+δ = r + γ · V[s_curr] − V[s_prev]
+V[s_prev] += α · δ
 ```
-`ReLU(V(xₜ))` ensures the gate is non-negative. High-value states (predictive
-of reward) are encoded more durably into hippocampal memory.
+`r = 1.0` if the new state is the nearest grid state to `reward_location`
+(same fixed `[x, y]` coordinate in every one of the 16 environments — see
+`how_to_run.md`), else `0.0`. No neural network, no gradient, no separate
+optimiser for the table itself — this is
+`neuralplayground/agents/td_value_head.py::TDValueHead`. Because consecutive
+states in a rollout are always spatially adjacent (the agent moves one step at
+a time), this is also a literal backward propagation of value through the
+grid graph, one edge at a time.
+
+**Change 2 — V(s) biases place-cell inference, not the observation**
+
+`V(s)` is **not** appended to `x`. Investigation showed the model's sensory
+pathway is fundamentally hostile to a continuous channel riding along with the
+one-hot object code:
+- `Model.f_c(x)` ([whittington_2020_model.py](../neuralplayground/agents/whittington_2020_extras/whittington_2020_model.py))
+  compresses `x` by `torch.argmax(x, dim=1)` then a **fixed** lookup into
+  `two_hot_table` — any appended continuous value is discarded; only the
+  identity of the max entry matters, and the true one-hot entry (`1.0`) always
+  wins argmax ties against a bounded `v_norm ∈ [0,1]`.
+- The generative cross-entropy loss derives `labels = torch.argmax(x, 1)` —
+  same story, the appended channel essentially never becomes the "true label."
+- The only place the raw value leaked through was a no-gradient heuristic
+  error term inside `inf_g` (comparing `x` against a generated `x_hat`) — not
+  a designed signal path.
+
+Instead, `V(s)` is passed as a **separate scalar alongside** `x` (never
+concatenated into it) and enters through a new additive bias on the inferred
+place-cell code:
+```python
+# Model.inf_p(), per frequency module f:
+mu_p = self.f_p(g_[f] * x_[f])
+mu_p = mu_p + self.f_v[f](v)     # NEW — only when use_value_bias=True
+```
+`self.f_v` is a `ModuleList` of `Linear(1, n_p[f])` layers (one per frequency
+module), created in `Model.init_trainable()` only when
+`hyper["use_value_bias"]=True`, so the baseline model's parameter count and
+checkpoint shape are completely unaffected. `v` is `V(s)` max-normalised to
+`[0,1]` per environment (same normalisation rationale as before, now applied
+to a real continuous input rather than a one-hot slot). This gives `V` a
+genuine, gradient-carrying path into `p` — and from there into the loss,
+memory, and everything downstream — without touching `n_x`, `n_x_c`, or any of
+the fixed combinatorial/tiling matrices (`two_hot_table`, `W_tile`, `W_repeat`).
+
+**What is explicitly NOT done:** the Hebbian update is left completely
+unmodulated in both conditions; `x`/`n_x`/`n_x_c` are identical between
+conditions. TEM-R only differs from baseline in an additive bias on `p`.
 
 ---
 
@@ -54,133 +87,114 @@ of reward) are encoded more durably into hippocampal memory.
 
 ### 1. `neuralplayground/agents/whittington_2020_extras/whittington_2020_model.py`
 
-No architecture changes needed. The existing `hebbian()` interface already accepts
-an optional `td_scale` tensor that multiplies `η`:
-```python
-if td_scale is not None:
-    eta = eta * td_scale.view(-1, 1, 1)
-```
-`td_scale` is now `ReLU(V(xₜ))` instead of `ReLU(δ)`, but the model code is
-unchanged.
+**This file is now changed** (previously untouched across all earlier
+designs). Threaded a new optional `v` parameter through the forward chain:
+`forward()` → `iteration()` → `inference()` → `inf_p()`, reusing the existing
+optional-tuple-element convention (`step_data[3]` was already reserved for the
+unused `td_scale`/Hebbian-gating slot from the very first superseded design;
+`v` is `step_data[4]`).
+
+- **`init_trainable()`**: creates `self.f_v` (`ModuleList` of
+  `Linear(1, n_p[f])`, one per frequency) only when
+  `self.hyper.get("use_value_bias", False)`.
+- **`inf_p(self, x_, g_, v=None)`**: adds `self.f_v[f](v)` to `mu_p` per
+  frequency when `v is not None and use_value_bias`. `x_`/`g_` computation is
+  untouched.
+- **`inference()` / `iteration()` / `forward()`**: pass `v` through unchanged
+  otherwise.
+- `hebbian()`'s `td_scale` parameter (from the earliest superseded design)
+  remains present and still unused — harmless dead capability, not removed,
+  not exercised.
 
 ---
 
-### 2. `neuralplayground/agents/whittington_2020.py`
+### 2. `neuralplayground/agents/whittington_2020_extras/whittington_2020_parameters.py`
 
-**New `__init__` parameters** (all optional, default to baseline-compatible values):
-
-| Parameter | Default | Description |
-|---|---|---|
-| `use_reward` | `False` | Enable V(x)-gated Hebbian update |
-| `reward_location` | `[3.0, 3.0]` | (x, y) coordinates of reward site |
-| `td_alpha` | `0.1` | Value head learning rate (Adam) |
-| `td_gamma` | `0.9` | Discount factor |
-| `n_pretrain_episodes` | `0` | Episodes of free (unmodulated) exploration before gating activates |
-
-**New attributes** (when `use_reward=True`):
-
-| Attribute | Description |
-|---|---|
-| `value_head` | `nn.Sequential(Linear(n_x+1+batch_size, 32), ReLU, Linear(32,1))` — input is 62-dim |
-| `value_optimizer` | `Adam(value_head.parameters(), lr=td_alpha)` |
-
-**Removed**: tabular `self.V` (list of per-env V arrays).
-
-**New method `_build_aug_obs(obs_entry, env_idx)`**:
-- Constructs `x_aug = concat(x_onehot, reward_flag, env_id_onehot)` — shape `(n_x+1+batch_size,)` = `(62,)`
-- The 16-dim env one-hot disambiguates environments so the shared head learns distinct per-env value gradients
-- Handles dummy initial observations (state_id=−1) by substituting zeros
-
-**Rewritten method `_compute_and_update_td(prev_obs, curr_obs)`**:
-- Batches all 16 environments into a single forward pass through `value_head`
-- Performs semi-gradient TD update via `value_optimizer`
-- Returns `ReLU(V(xₜ))` as a `(batch_size,)` float32 array for Hebbian gating
-
-**Modified `reset()`**:
-- Removed tabular V initialisation; `value_head` keeps weights across resets
-
-**Modified `save_agent()`**:
-- Also pickles `value_head.state_dict()` to `<save_dir>/value_head`
-
-**`update()`** (unchanged interface):
-- `gating_active = use_reward and episode_count >= n_pretrain_episodes`
-- When active: appends `ReLU(V(xₜ))` tensor as 4th element in each model step
-- `episode_count` incremented after each backprop update
+Added `params["use_value_bias"] = False` as the documented default (agent
+overrides to `True` when `use_reward=True`).
 
 ---
 
-### 3. `examples/agent_examples/whittington_2020_run.py`
+### 3. `neuralplayground/agents/td_value_head.py`
 
-**Top-level flags:**
-```python
-USE_REWARD          = False       # False = baseline, True = TEM-R
-TEST_MODE           = False       # True = 10-episode smoke test
-TRAJECTORY_SEED     = 42          # Keep identical across conditions
-N_PRETRAIN_EPISODES = 50
-REWARD_LOCATION     = [3.0, 3.0]
-TD_ALPHA            = 0.1
-TD_GAMMA            = 0.9
-```
-
-- `n_episode = 5000` (full run) or `10` (TEST_MODE)
-- `eval_interval = 1000` (full run) or `2` (TEST_MODE)
-- `save_path` resolves to `results_sim/baseline/` or `results_sim/reward_modulated/`
+Unchanged from the previous (state-keyed) design — `TDValueHead(n_envs,
+n_keys_per_env, alpha=0.1, gamma=0.9)`, one table per environment sized to
+that environment's state count, keyed by physical state id.
 
 ---
 
-### 4. `examples/agent_examples/_tem_eval.py`
+### 4. `neuralplayground/agents/whittington_2020.py`
 
-**Value map** (`v_table.npy` + `value_map.png`):
-- Old: read from `agent.V[0]` (tabular V, one entry per state)
-- New: run `value_head(x_aug)` for every visited state in `history_slice`, average
-  over visits per state, save the resulting `(n_states,)` array
+**`__init__`**: sets `self.pars["use_value_bias"] = self.use_reward` before
+constructing `Model` (moved `self.use_reward` assignment earlier so it's
+available at that point). No more `n_x`/`obs_dim` bumping logic — `self.pars`
+is identical between conditions except for this one flag.
 
-Plot label updated from `V(s)` to `V(x)` to reflect neural function approximation.
+**Removed**: `obs_dim` attribute, `_augment_observations()`.
+
+**New method `_value_for_history(history)`**: returns a list of
+`(batch_size,)` tensors (one per rollout step), each `V(s_t)` max-normalised
+per environment. Does not touch observations at all.
+
+**`update()` / `collect_final_trajectory()`**: build `v_steps =
+self._value_for_history(history)` when `use_reward`, and append `[None,
+v_steps[i]]` (the unused `td_scale` slot, then `v`) to each `model_input`
+step — instead of modifying the observation tensor or its reshape width
+(`obs_array` always reshapes to `self.pars["n_x"]` now, in both conditions).
+
+**`batch_act()`**: unchanged — still does the state-keyed TD(0) backup
+independently of how `V` reaches TEM.
+
+---
+
+### 5. `examples/agent_examples/whittington_2020_run.py` / `whittington_2020_loop_run.py`
+
+**Removed**: the `full_agent_params["n_x"] = params["n_x"] + 1` bump. `n_x`
+and `discrete_env_params["n_objects"]` are identical between conditions now —
+TEM-R is purely a runtime flag (`use_reward=True`) passed to the agent.
+
+---
+
+### 6. `examples/agent_examples/_tem_eval.py`
+
+**Forward pass**: builds a separate `v_seq` (mirroring
+`agent._value_for_history`) and appends `[None, v]` to each `model_input` step
+instead of concatenating `v` onto the observation array.
+
+**Value map / object overlay** (`v_table.npy`, `value_map.png`,
+`object_value_map.png`): unchanged — these still read `agent.td.V[0]`
+directly, since the TD table itself is unaffected by how `V` reaches TEM.
+
+---
+
+### 7. `examples/agent_examples/run_full_experiment.py`
+
+Unchanged by this round. Orchestrates both training runs (in parallel by
+default — `--sequential` for one-at-a-time) then `tem_predictive_analysis.py`.
+See `how_to_run.md` for usage.
 
 ---
 
 ## What is NOT changed
 
-- TEM architecture, loss function, and backpropagation
-- Grid cell (g) dynamics and transition model
-- Sensory encoding/decoding pathway (n_x=45, unchanged)
-- Inference and generative model structure
-- `BatchEnvironment` and `DiscreteObjectEnvironment`
-- `whittington_2020_model.py` (no code changes)
+- TEM's sensory pathway: `f_c`, `two_hot_table`, `x_prev2x`, `x2x_`, `W_tile`,
+  `W_repeat`, the generative cross-entropy loss over `x` — completely
+  untouched, in both conditions.
+- The Hebbian update (always unmodulated, in both conditions).
+- Grid cell (g) dynamics and transition model.
+- `BatchEnvironment` and `DiscreteObjectEnvironment`.
+- `n_x` / `n_x_c` (identical between conditions; never bumped).
 
 ---
 
 ## How to run the experiment
 
+See `how_to_run.md`. Quick version:
 ```bash
 cd examples/agent_examples
 conda activate tem_env
+python run_full_experiment.py
 ```
-
-**Quick smoke test (10 episodes):**
-```python
-# set TEST_MODE = True, USE_REWARD = False (or True), then:
-python whittington_2020_run.py
-```
-
-**Step 1 — Baseline (5000 episodes):**
-```python
-# set TEST_MODE = False, USE_REWARD = False
-python whittington_2020_run.py
-```
-
-**Step 2 — TEM-R (5000 episodes):**
-```python
-# set USE_REWARD = True
-python whittington_2020_run.py
-```
-
-**Step 3 — Post-hoc analysis:**
-```bash
-python tem_predictive_analysis.py
-```
-
-Keep `TRAJECTORY_SEED = 42` identical in both runs.
 
 ---
 
@@ -202,14 +216,16 @@ results_sim/
 │
 ├── reward_modulated/
 │   ├── agent, agent_hyper, arena, params.dict, training_hist.dict
-│   ├── value_head                   ← saved value_head state_dict
+│   ├── agent's tem state_dict also includes f_v.{0..4}.{weight,bias} — absent in baseline
+│   ├── td_value_table               ← pickled list of per-env V arrays (agent.td.V), one entry per state
 │   ├── whittington_2020_model.py
 │   └── plots/
 │       └── episode_N/
 │           ├── p_rates.npy
-│           ├── v_table.npy          ← V(x) averaged per state, shape (n_states,)
+│           ├── v_table.npy          ← V(s), shape (n_states,)
 │           ├── trajectory.png
-│           ├── value_map.png        ← V(x) plotted on 2D grid
+│           ├── value_map.png        ← V(s) plotted on 2D grid
+│           ├── object_value_map.png ← V(s) + object id overlay, highlights repeated-object states
 │           ├── place_cells_*.png
 │           └── grid_cells_*.png
 │
@@ -219,17 +235,41 @@ results_sim/
 
 ---
 
-## Per-step log fields (`agent.step_log`)
+## Superseded designs (historical record — no longer in the codebase)
 
-Populated only when `use_reward=True`. Each dict entry:
+### 1. Neural value head + Hebbian gating (earliest design)
 
-| Field | Description |
-|---|---|
-| `episode` | Episode index at time of step |
-| `env` | Environment index (0–15) |
-| `s` | State ID at start of transition |
-| `s_prime` | State ID after transition |
-| `reward` | 1.0 if s' is the reward state, else 0.0 |
-| `V_t` | Raw `V(x_t)` from value head (may be negative early in training) |
-| `V_t1` | Raw `V(x_{t+1})` (bootstrapped target, no gradient) |
-| `hebbian_scale` | `max(0, V_t)` — actual multiplier applied to η |
+- **Observation:** `x_aug = concat(x_onehot [45], reward_flag [1], env_id_onehot [16])`
+  → shape `(62,)`, fed only to the value head (TEM still received plain 45-dim `x`).
+- **Value function:** `value_head: Linear(62→32) → ReLU → Linear(32→1)`, trained
+  via semi-gradient TD with its own Adam optimiser, `lr=td_alpha`.
+- **Hebbian gating:** `M = λM + η · ReLU(V(xₜ)) · (p − p̂)(p + p̂)ᵀ` — high-value
+  states encoded more durably into memory.
+- **Pretrain phase:** `n_pretrain_episodes=50` episodes of unmodulated
+  exploration before gating activated, to let TEM form stable structural
+  representations first.
+
+The results in `results_interpretation.md` were produced under this design and
+do not describe the current architecture's behaviour.
+
+### 2. Object-keyed tabular value (second design)
+
+Same observation-concatenation mechanism as design 3 below, but the table was
+indexed by **object id** (`argmax` of the one-hot observation) instead of
+physical state. Two states sharing the same object were *forced* to share the
+same `V` — the opposite of what's needed to tell repeated-object states apart.
+
+### 3. State-keyed value concatenated onto the observation (third design)
+
+Fixed design 2's indexing problem (switched to state-keyed `V`), but still
+appended `v_norm` as a 46th dimension on `x`:
+```
+x_aug = concat(x_onehot [45], v_norm [1])   →   shape (46,)
+```
+requiring the caller to widen `pars["n_x"]` by 1 before constructing the agent.
+Investigation (see Change 2 above) found this injection point is nearly inert:
+`Model.f_c`'s argmax-based two-hot lookup and the cross-entropy loss's
+argmax-based labelling both discard the appended channel, so `V` had no real
+gradient path into the model. This motivated moving to the `f_v` place-cell
+bias in the current design, which keeps the state-keyed table but changes
+*where* it joins the model.

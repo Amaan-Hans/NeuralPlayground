@@ -11,19 +11,37 @@ conda activate tem_env
 
 ## Scripts
 
+### 0. `run_full_experiment.py` — Run everything in one command
+
+Drives both training runs (baseline, then TEM-R) and the post-hoc analysis
+script in sequence via subprocess, using env-var overrides so neither script
+needs manual editing.
+
+```bash
+python run_full_experiment.py                 # full 5000-episode runs (~3h/condition on GPU)
+python run_full_experiment.py --test           # 10-episode smoke test (~1 min total)
+python run_full_experiment.py --skip-analysis  # stop after both trainings finish
+```
+
+This is the recommended entry point. The per-script descriptions below are for
+running steps individually (e.g. to re-run just one condition).
+
+---
+
 ### 1. `whittington_2020_run.py` — Training
 
-Runs one full TEM training (5 000 episodes). Switch `USE_REWARD` at the top of the file between the two conditions.
+Runs one full TEM training (5 000 episodes). Switch `USE_REWARD` at the top of
+the file between the two conditions, or set the env vars `TEM_USE_REWARD=1` /
+`TEM_TEST_MODE=1` (these override the literals, used by `run_full_experiment.py`).
 
 **Top-level flags:**
 ```python
-USE_REWARD          = False       # False = baseline, True = TEM-R (V(x)-gated)
+USE_REWARD          = False       # False = baseline, True = TEM-R (V(s) appended to observation)
 TEST_MODE           = False       # True = 10-episode smoke test
 TRAJECTORY_SEED     = 42          # keep identical in both runs
-N_PRETRAIN_EPISODES = 50          # free-exploration episodes before reward gating starts
 REWARD_LOCATION     = [3.0, 3.0]
-TD_ALPHA            = 0.1         # value head Adam learning rate
-TD_GAMMA            = 0.9
+TD_ALPHA            = 0.1         # tabular value-table learning rate
+TD_GAMMA            = 0.95
 ```
 
 **Run order:**
@@ -48,19 +66,34 @@ Both conditions use `TRAJECTORY_SEED = 42`. The training loop seeds both `random
 selection) immediately before `env.reset()`. Because TEM never influences which
 action is taken — the agent always follows a random policy — the trajectory (which
 states are visited, in which order) is **byte-for-byte identical** across baseline
-and TEM-R. The value head in TEM-R learns from those same visits, but does not
+and TEM-R. The TD value table in TEM-R learns from those same visits, but does not
 change them.
 
 ---
 
-### Reward gating schedule
+### How V(s) reaches TEM
 
-For the first `N_PRETRAIN_EPISODES = 50` episodes:
-- The value head is **already being trained** (TD updates run from episode 0)
-- But **gating is inactive** — Hebbian update is uniform, same as baseline
-- This lets TEM form stable structural representations before reward modulation begins
+TEM-R uses a TD-learned, **state-keyed** value `V(s_t)`, but it is **not**
+appended to the observation. The model's sensory pathway (`Model.f_c`'s
+argmax-based two-hot lookup, and the cross-entropy loss's argmax-based
+labelling) turned out to discard a continuous channel tacked onto the one-hot
+`x` almost entirely — see `experiment_changes.md`'s "Superseded designs"
+section 3 for the full investigation. Instead, `V(s_t)` is passed as a
+separate scalar that biases the inferred place-cell code directly, via new
+`f_v` layers in `Model.inf_p()` (one `Linear(1, n_p[f])` per frequency
+module), created only when `use_reward=True`. `n_x` is identical between
+conditions — there is no width bump anywhere anymore.
 
-After episode 50, `gating_active = True` and V(xₜ) gates the Hebbian update.
+The table itself is still indexed by physical grid state, not object identity
+— since only 45 objects are spread across up to 144 states per environment,
+many states share the same sensory object, and keying `V` by state (rather
+than by object) is what lets those otherwise-identical states carry different
+values, independent of how that value reaches TEM.
+
+There is no pretrain/gating delay in this design: TD updates run from episode
+0. Early in training `V` is near zero everywhere (initialised to zero), so
+the `f_v` bias starts out near-zero and only becomes informative as the table
+is learned — there's no separate warm-up phase to configure.
 
 ---
 
@@ -68,13 +101,13 @@ After episode 50, `gating_active = True` and V(xₜ) gates the Hebbian update.
 
 | File | Description |
 |---|---|
-| `agent` | Trained TEM weights (PyTorch `state_dict`, pickled) |
+| `agent` | Trained TEM weights (PyTorch `state_dict`, pickled). **TEM-R only:** also includes `f_v.0..4.{weight,bias}` (absent in baseline). |
 | `agent_hyper` | TEM hyperparameter dict (pickled) |
 | `arena` | Pickled `BatchEnvironment` |
 | `params.dict` | Full training metadata (`agent_class`, `agent_params`, `env_class`, `env_params`, `training_loop_params`) |
 | `training_hist.dict` | Per-episode loss history |
 | `whittington_2020_model.py` | Copy of the model file at save time |
-| `value_head` | Trained value head `state_dict` — **reward condition only** |
+| `td_value_table` | Pickled list of per-environment `V` arrays (`agent.td.V`), one entry per state in that environment (sizes vary: 100/64/100/144) — **TEM-R only** |
 | `plots/episode_<N>/` | Eval snapshots every 1 000 episodes (see `_tem_eval.py`) |
 
 **Approximate runtime:** ~3 hours per condition on a CUDA GPU.
@@ -91,13 +124,19 @@ Not run directly. Called by the training loop every `eval_interval=1000` episode
 |---|---|
 | `p_rates.npy` | Place cell rate maps, shape `(n_states, total_p_cells)`. Used by `tem_predictive_analysis.py`. |
 | `g_rates.npy` | Grid cell rate maps, shape `(n_states, total_g_cells)`. |
-| `v_table.npy` | V(x) averaged per state, shape `(n_states,)`. **Reward condition only.** Computed by running `value_head(x_aug)` on each visited state in the last 500 steps and averaging over visits. |
+| `v_table.npy` | `V(s)`, shape `(n_states,)`. **TEM-R only.** This is just `agent.td.V[0][:n_states]` directly — the table is already state-indexed, no projection needed. |
 | `trajectory.png` | Last 500 steps of env 0 trajectory (green = start, red = end, gold star = reward). |
-| `value_map.png` | V(x) per state reshaped to 2D grid. **Reward condition only.** |
+| `value_map.png` | `V(s)` reshaped to 2D grid. **TEM-R only.** |
+| `object_value_map.png` | `V(s)` heatmap with each cell's object id overlaid as text, and lime boxes around every state sharing the reward state's object — checks whether repeated-object states actually end up with *different* values. **TEM-R only.** |
 | `place_cells_<freq>.png` | Up to 30 place cell rate maps per frequency module. |
 | `grid_cells_<freq>.png` | Up to 30 grid cell rate maps per frequency module. |
 
 Uses the last `EVAL_STEPS = 500` steps from `obs_history`. Only env 0 is evaluated.
+
+When `agent.use_reward` is set, `run_eval` also builds a `V(s)` sequence for
+env 0 and passes it alongside (not concatenated onto) the observation, mirroring
+`agent._value_for_history` — required so the eval forward pass exercises the
+same `f_v` place-cell bias the model was actually trained with.
 
 ---
 
@@ -117,9 +156,11 @@ and `agent_hyper` on disk.
 **Limitation:** only recovers the final checkpoint (episode 10 000 label). Intermediate
 checkpoints require full retraining.
 
-**Note:** When loading a reward-modulated run, the value head is rebuilt with random
-weights (the saved `value_head` file is not loaded automatically). This is fine for
-probe eval — rate maps depend on TEM weights, not the value head.
+**Note:** When loading a reward-modulated run, the agent is rebuilt via
+`agent_class(**agent_params)`, so the TD value table (`agent.td.V`) starts fresh at
+zero rather than restoring `td_value_table` from disk. This is fine for probe eval
+— rate maps depend on TEM weights, and the table re-learns from the probe walk
+itself (see caveat in `results_interpretation.md`).
 
 **Approximate runtime:** ~10 minutes per condition.
 
@@ -142,7 +183,7 @@ conditions.
 |---|---|
 | `population_activity_baseline.png` | Mean place cell firing per grid state across checkpoints. |
 | `population_activity_reward_modulated.png` | Same for TEM-R — activity should shift backward from reward over training. |
-| `value_correlation.png` | Pearson r between mean place activity and V(x) over training. A rising trend means cells become predictive of future reward. |
+| `value_correlation.png` | Pearson r between mean place activity and V(s) over training. A rising trend means cells become predictive of future reward. |
 | `peak_distance_from_reward.png` | Mean/median distance of each cell's peak-firing state from the reward location, both conditions across episodes. |
 | `peak_distance_hist_baseline.png` | Histogram of peak-firing distances at first vs last checkpoint (baseline). |
 | `peak_distance_hist_reward_modulated.png` | Same for TEM-R. |
@@ -151,6 +192,12 @@ conditions.
 
 ## Full Run Order (from scratch)
 
+**Recommended — single command:**
+```bash
+python run_full_experiment.py
+```
+
+**Equivalent manual steps:**
 ```bash
 # 1. Quick smoke test (optional)
 #    set TEST_MODE = True, run either condition
@@ -189,12 +236,17 @@ python tem_probe_eval.py
 
 ```python
 state_density   = 1        # one grid state per unit area
-n_objects       = 45       # sensory feature dimension (= n_x in TEM params)
+n_objects       = 45       # sensory feature dimension (base n_x, unaffected by TEM-R's +1 input widening)
 agent_step_size = 1
 ```
 
-**Starting position:** `[0, 0]` in both conditions (`random_start=False`).  
-**Reward location:** `[3.0, 3.0]` — top-right quadrant of env 0.
+**Starting position:** `[0, 0]` in both conditions (`random_start=False`).
+**Reward location:** `[3.0, 3.0]` in every one of the 16 environments — a fixed
+physical coordinate, mapped per-environment to the nearest grid state
+(`agent._compute_reward_state_ids`). Because each environment's object layout is
+randomised independently, the sensory *object* occupying that location differs
+across environments; the per-environment TD table only ever sees its own
+environment's object-reward pairing.
 
 ### TEM Hyperparameters
 
@@ -204,16 +256,18 @@ agent_step_size = 1
 | `n_f` | 5 | Frequency modules |
 | `n_p` | [100, 100, 80, 60, 60] | Place cells per module (400 total) |
 | `n_g` | [30, 30, 24, 18, 18] | Grid cells per module |
-| `n_x` | 45 | Sensory feature dimension |
+| `n_x` | 45 (both conditions — never bumped) | Sensory feature dimension fed into TEM |
 | `eta` | 0.5 | Hebbian learning rate |
 | `lambda` | 0.9999 | Hebbian memory decay |
 
-### Value head (TEM-R only)
+### TD value table (TEM-R only)
 
 | Parameter | Value |
 |---|---|
-| Architecture | Linear(62→32) → ReLU → Linear(32→1) |
-| Input | `concat(x_onehot [45], reward_flag [1], env_id_onehot [16])` |
-| Optimiser | Adam, `lr = TD_ALPHA = 0.1` |
-| Update frequency | Every accepted step (online TD) |
-| Gating | `ReLU(V(xₜ))` applied to η in Hebbian update |
+| Representation | Tabular, one array per environment sized to that env's state count (`agent.td.V`, sizes 100/64/100/144) |
+| Indexing | Physical state id — **not** object identity (two states sharing an object can differ) |
+| Update rule | TD(0): `V[s_prev] += alpha * (r + gamma * V[s_curr] - V[s_prev])` |
+| Update frequency | Every accepted step (online), in `batch_act()` |
+| Reward | `r = 1.0` if the new state is the nearest state to `reward_location`, else `0.0` |
+| Reaches TEM via | `Model.inf_p`'s `f_v` bias on the place-cell code `p` — **not** concatenated onto the observation `x` (see `experiment_changes.md`) |
+| Consumption | Max-normalised `V(s_t)` appended to the observation vector fed into TEM — the Hebbian update itself is unmodulated |

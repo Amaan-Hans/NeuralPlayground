@@ -97,16 +97,14 @@ class Whittington2020(AgentCore):
             state_density: float
                 density of agent states (should be proportional to the step-size)
             use_reward: bool
-                If True, gate Hebbian updates by V(x_t) from a neural value head. Default False.
+                If True, a TD-learned value V(s) biases place-cell inference
+                via Model.inf_p's f_v layers. Default False.
             reward_location: list [x, y]
                 Coordinates of the reward site. Default [3.0, 3.0].
             td_alpha: float
-                TD learning rate for V(s). Default 0.1.
+                TD learning rate for the tabular V(s). Default 0.1.
             td_gamma: float
                 Discount factor for TD updates. Default 0.9.
-            n_pretrain_episodes: int
-                Episodes of free exploration before reward gating is applied.
-                Default 0 (gating active from episode 1).
 
         """
         super().__init__()
@@ -116,7 +114,11 @@ class Whittington2020(AgentCore):
         self.room_depths = mod_kwargs["room_depths"]
         self.state_densities = mod_kwargs["state_densities"]
 
+        self.use_reward = mod_kwargs.get("use_reward", False)
         self.pars = copy.deepcopy(params)
+        # TEM-R: tells Model to create/use the f_v value-bias layers in inf_p().
+        # Does not change n_x/n_x_c or any sensory-pathway dimension.
+        self.pars["use_value_bias"] = self.use_reward
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.tem = model.Model(self.pars, self.device)
         self.batch_size = mod_kwargs["batch_size"]
@@ -133,28 +135,37 @@ class Whittington2020(AgentCore):
         self.prev_observations = None
 
         # --- Reward / TD parameters ---
-        self.use_reward = mod_kwargs.get("use_reward", False)
         self.reward_location = mod_kwargs.get("reward_location", [3.0, 3.0])
         self.td_alpha = mod_kwargs.get("td_alpha", 0.1)
         self.td_gamma = mod_kwargs.get("td_gamma", 0.9)
-        self.n_pretrain_episodes = mod_kwargs.get("n_pretrain_episodes", 0)
         self.reward_state_ids = self._compute_reward_state_ids()
         self.episode_count = 0
 
-        # --- Neural value head V(x): MLP takes augmented obs (n_x + 1 + batch_size) → scalar ---
-        # Input = concat(x_onehot [n_x], reward_flag [1], env_id one-hot [batch_size])
-        # The env one-hot lets the network learn separate V gradients per environment
-        # so that cross-environment object conflicts don't produce a near-constant output.
+        # --- Tabular value head V(s), indexed by physical grid state ---
+        # Many states share the same sensory object (n_x=45 objects spread
+        # over up to 144 states per env), so two indistinguishable-by-object
+        # states can still carry different V if keyed by state id — that's
+        # the whole point: it differentiates states an object-keyed table
+        # would conflate.
+        #
+        # V is NOT appended to the observation x: Model.f_c compresses x via
+        # argmax-then-fixed-lookup (two_hot_table) and the generative loss
+        # labels x via argmax too, so a continuous channel tacked onto x is
+        # discarded by both pathways (see Useful_info/experiment_changes.md).
+        # Instead V is passed alongside x as a separate model_input element and
+        # enters through Model.inf_p's f_v bias (self.pars["use_value_bias"]
+        # set above), which has a real, gradient-carrying path into p.
         if self.use_reward:
-            n_x = self.pars["n_x"]
-            self.value_head = torch.nn.Sequential(
-                torch.nn.Linear(n_x + 1 + self.batch_size, 32),
-                torch.nn.ReLU(),
-                torch.nn.Linear(32, 1),
-            ).to(self.device)
-            self.value_optimizer = torch.optim.Adam(
-                self.value_head.parameters(), lr=self.td_alpha
+            from neuralplayground.agents.td_value_head import TDValueHead
+
+            self.td = TDValueHead(
+                n_envs=self.batch_size,
+                n_keys_per_env=self.n_states,
+                alpha=self.td_alpha,
+                gamma=self.td_gamma,
             )
+        else:
+            self.td = None
 
         self.reset()
 
@@ -176,8 +187,8 @@ class Whittington2020(AgentCore):
         self.prev_observations = [
             [-1, -1, [float("inf"), float("inf")]] for _ in range(self.batch_size)
         ]
-        self.td_errors = []   # per-step list of (batch_size,) V(x_t) gate arrays
-        self.step_log = []    # per-step dicts for offline analysis
+        if self.td is not None:
+            self.td.reset_all()
 
     def _compute_reward_state_ids(self):
         """Find the state index nearest to reward_location for each environment."""
@@ -273,12 +284,18 @@ class Whittington2020(AgentCore):
             if all_allowed:
                 self.walk_actions.append(self.prev_actions.copy())
                 self.obs_history.append(self.prev_observations.copy())
-                # Compute per-environment TD errors using the transition s→s'
-                if self.use_reward:
-                    td_errors_step = self._compute_and_update_td(
-                        self.prev_observations, observations
-                    )
-                    self.td_errors.append(td_errors_step)
+                # TD(0) backup for the transition s_prev -> s (observations),
+                # keyed by physical state id.
+                if self.td is not None:
+                    state_ids = [
+                        observations[i][0] if observations[i][0] >= 0 else None
+                        for i in range(self.batch_size)
+                    ]
+                    rewards = [
+                        1.0 if observations[i][0] == self.reward_state_ids[i] else 0.0
+                        for i in range(self.batch_size)
+                    ]
+                    self.td.update(state_ids, rewards)
                 for batch in range(self.pars["batch_size"]):
                     new_actions.append(self.action_policy())
                 self.prev_actions = new_actions
@@ -295,91 +312,33 @@ class Whittington2020(AgentCore):
 
         return new_actions
 
-    def _build_aug_obs(self, obs_entry, env_idx):
-        """Build augmented observation for the value head.
+    def _value_for_history(self, history):
+        """Build the per-step, per-env value tensor fed to Model.inf_p's f_v bias.
 
-        Output: concat(x_onehot [n_x], reward_flag [1], env_id one-hot [batch_size])
-        shape = (n_x + 1 + batch_size,)
-
-        The env one-hot disambiguates which environment the observation comes from so
-        the shared value head can learn a separate reward-distance gradient per env.
-        Handles the dummy initial observation (state_id=-1) by substituting zeros.
-        """
-        state_id = obs_entry[0]
-        x_onehot = obs_entry[1]
-        r_flag = (
-            1.0
-            if (state_id >= 0 and state_id == self.reward_state_ids[env_idx])
-            else 0.0
-        )
-        n_x = self.pars["n_x"]
-        x_candidate = np.atleast_1d(np.asarray(x_onehot, dtype=np.float32))
-        x_arr = x_candidate if x_candidate.shape == (n_x,) else np.zeros(n_x, dtype=np.float32)
-        env_one_hot = np.zeros(self.batch_size, dtype=np.float32)
-        if 0 <= env_idx < self.batch_size:
-            env_one_hot[env_idx] = 1.0
-        return np.concatenate([x_arr, [r_flag], env_one_hot])  # (n_x + 1 + batch_size,)
-
-    def _compute_and_update_td(self, prev_obs, curr_obs):
-        """Update neural value head V(x) and return ReLU(V(x_t)) as Hebbian gate.
-
-        Uses semi-gradient TD: target = r + γ·stop_grad(V(x_{t+1})).
-        The Hebbian gate is ReLU(V(x_t)) so high-value states are encoded
-        more durably into memory.
-
-        Parameters
-        ----------
-        prev_obs : list of [state_id, object, pos]  length=batch_size   (x_t)
-        curr_obs : list of [state_id, object, pos]  length=batch_size   (x_{t+1})
+        ``history`` is a list of length n_rollout, each element a list of
+        length batch_size of ``[state_id, obs_vec, position]`` entries (the
+        same shape as ``obs_history``/the local ``history`` slice in
+        ``update()`` and ``collect_final_trajectory()``). V is looked up per
+        environment from the state-indexed table and max-normalised to [0, 1]
+        so its scale stays stable regardless of absolute reward magnitude.
+        This is a separate side-channel from the observation — it is never
+        concatenated onto x.
 
         Returns
         -------
-        v_gates : np.ndarray shape (batch_size,)
-            ReLU(V(x_t)) for each environment, used to gate the Hebbian update.
+        list of torch.Tensor, length n_rollout, each shape (batch_size,)
         """
-        # Build augmented obs for all environments
-        x_t_np = np.stack([self._build_aug_obs(prev_obs[i], i) for i in range(self.batch_size)])
-        x_t1_np = np.stack([self._build_aug_obs(curr_obs[i], i) for i in range(self.batch_size)])
-        x_t = torch.tensor(x_t_np, dtype=torch.float32, device=self.device)
-        x_t1 = torch.tensor(x_t1_np, dtype=torch.float32, device=self.device)
-
-        rewards = torch.tensor(
-            [1.0 if curr_obs[i][0] == self.reward_state_ids[i] else 0.0
-             for i in range(self.batch_size)],
-            dtype=torch.float32, device=self.device,
-        )
-
-        # V(x_t) — gradient flows for value head update
-        V_t = self.value_head(x_t).squeeze(1)  # (batch_size,)
-
-        # V(x_{t+1}) — bootstrapped target, no gradient
-        with torch.no_grad():
-            V_t1 = self.value_head(x_t1).squeeze(1)  # (batch_size,)
-
-        # Semi-gradient TD: minimise 0.5 * ||r + γV(x') - V(x)||²
-        td_target = (rewards + self.td_gamma * V_t1).detach()
-        loss = 0.5 * torch.mean((td_target - V_t) ** 2)
-        self.value_optimizer.zero_grad()
-        loss.backward()
-        self.value_optimizer.step()
-
-        # Gate = ReLU(V(x_t)) — non-negative scale for Hebbian update
-        v_gates = torch.relu(V_t).detach().cpu().numpy().astype(np.float32)
-
-        for i in range(self.batch_size):
-            self.step_log.append(
-                {
-                    "episode": self.episode_count,
-                    "env": i,
-                    "s": prev_obs[i][0],
-                    "s_prime": curr_obs[i][0],
-                    "reward": rewards[i].item(),
-                    "V_t": V_t[i].item(),
-                    "V_t1": V_t1[i].item(),
-                    "hebbian_scale": float(v_gates[i]),
-                }
-            )
-        return v_gates
+        v_steps = []
+        for step in history:
+            v_step = np.zeros(len(step), dtype=np.float32)
+            for env_i, env_step in enumerate(step):
+                state_id = env_step[0]
+                v_table = self.td.V[env_i]
+                v_t = float(v_table[state_id]) if 0 <= state_id < v_table.shape[0] else 0.0
+                v_max = float(np.max(v_table))
+                v_step[env_i] = v_t / v_max if v_max > 0 else 0.0
+            v_steps.append(torch.from_numpy(v_step).type(torch.float32).to(self.device))
+        return v_steps
 
     def update(self):
         """Compute forward pass through model, updating weights, calculating
@@ -419,25 +378,13 @@ class Whittington2020(AgentCore):
         for param_group in self.adam.param_groups:
             param_group["lr"] = self.lr
 
-        # TD gating is suppressed during the pretrain phase so TEM can build
-        # stable structural representations before reward modulation begins.
-        gating_active = (
-            self.use_reward and self.episode_count >= self.n_pretrain_episodes
-        )
-
-        # td_history is a list of (batch_size,) ReLU(V(x_t)) arrays, one per
-        # rollout step.  None when gating is off — the model receives a plain
-        # 3-element step tuple and behaves identically to the original TEM.
-        if gating_active and len(self.td_errors) >= self.pars["n_rollout"]:
-            td_history = self.td_errors[-self.pars["n_rollout"]:]
-        else:
-            td_history = None
+        # V(s_t) is passed alongside the observation, not concatenated onto it
+        # (see Model.inf_p's f_v bias). The Hebbian update is left unmodulated.
+        v_steps = self._value_for_history(history) if self.use_reward else None
 
         # Collect all information in walk variable.
-        # When td_history is not None a 4th element (td_scale tensor) is appended
-        # to each step; model.forward() unpacks and passes it to hebbian().
         model_input = []
-        obs_array = np.reshape(observations, (20, 16, 45))
+        obs_array = np.reshape(observations, (20, 16, self.pars["n_x"]))
         act_array = np.reshape(action_values, (20, 16))
         for i in range(self.pars["n_rollout"]):
             step = [
@@ -445,18 +392,13 @@ class Whittington2020(AgentCore):
                 torch.from_numpy(obs_array[i]).type(torch.float32).to(self.device),
                 act_array[i].tolist(),
             ]
-            if td_history is not None:
-                # Shape (batch_size,) — hebbian() reshapes to (batch_size,1,1)
-                step.append(
-                    torch.tensor(td_history[i], dtype=torch.float32).to(self.device)
-                )
+            if v_steps is not None:
+                step.append(None)  # td_scale slot (Hebbian gating) - unused
+                step.append(v_steps[i])
             model_input.append(step)
 
         self.final_model_input = model_input
         self.episode_count += 1
-        # Trim the td_errors buffer to avoid unbounded growth.
-        if self.use_reward:
-            self.td_errors = self.td_errors[self.pars["n_rollout"]:]
 
         forward = self.tem(model_input, self.prev_iter)
 
@@ -542,10 +484,10 @@ class Whittington2020(AgentCore):
         with open(os.path.join(os.path.dirname(save_path), "agent_hyper"), "wb") as fp:
             pickle.dump(self.tem.hyper, fp, pickle.HIGHEST_PROTOCOL)
 
-        if self.use_reward and hasattr(self, "value_head"):
+        if self.td is not None:
             pickle.dump(
-                self.value_head.state_dict(),
-                open(os.path.join(os.path.dirname(save_path), "value_head"), "wb"),
+                self.td.V,
+                open(os.path.join(os.path.dirname(save_path), "td_value_table"), "wb"),
                 pickle.HIGHEST_PROTOCOL,
             )
 
@@ -686,16 +628,22 @@ class Whittington2020(AgentCore):
         actions = self.walk_actions[-self.n_walk :]
         action_values = self.step_to_actions(actions)
 
+        v_steps = self._value_for_history(history) if self.use_reward else None
+
         model_input = [
             [
                 locations[i],
                 torch.from_numpy(
-                    np.reshape(observations, (self.n_walk, 16, 45))[i]
+                    np.reshape(observations, (self.n_walk, 16, self.pars["n_x"]))[i]
                 ).type(torch.float32),
                 np.reshape(action_values, (self.n_walk, 16))[i].tolist(),
             ]
             for i in range(self.n_walk)
         ]
+        if v_steps is not None:
+            for i in range(self.n_walk):
+                model_input[i].append(None)  # td_scale slot (Hebbian gating) - unused
+                model_input[i].append(v_steps[i])
 
         single_index = [[model_input[step][0][0]] for step in range(len(model_input))]
         single_obs = [
@@ -707,6 +655,10 @@ class Whittington2020(AgentCore):
             [single_index[step], single_obs[step], single_action[step]]
             for step in range(len(model_input))
         ]
+        if v_steps is not None:
+            for step in range(len(single_model_input)):
+                single_model_input[step].append(None)
+                single_model_input[step].append(v_steps[step][0:1])
         final_model_input.extend(single_model_input)
 
         return final_model_input, history, environments

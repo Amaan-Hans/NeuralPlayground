@@ -10,7 +10,7 @@ The grid resets to (-0.5, -0.5) at the phase transition.
 
 Flags
 -----
-USE_REWARD   : False = baseline TEM, True = reward-modulated TEM (LC-inspired)
+USE_REWARD   : False = baseline TEM, True = TEM-R (V(o) appended to observation)
 TEST_MODE    : True  = 100 episodes total (quick sanity check)
                False = 10 000 episodes
 
@@ -40,7 +40,6 @@ TEST_MODE   = False   # True = 100 episodes; False = 10 000 episodes
 # ──────────────────────────────────────────────────────────────────────────────
 
 TRAJECTORY_SEED       = 42
-N_PRETRAIN_EPISODES   = 50
 REWARD_LOCATION       = [3.0, 3.0]
 TD_ALPHA              = 0.1
 TD_GAMMA              = 0.95
@@ -64,6 +63,8 @@ SQUARE_LOOP = [_DOWN] * 4 + [_RIGHT] * 3 + [_UP] * 4 + [_LEFT] * 3
 # ── Environment & agent setup (identical to whittington_2020_run.py) ──────────
 params = parameters.parameters()
 full_agent_params = params.copy()
+# TEM-R no longer widens n_x: V(s) reaches TEM through Model.inf_p's f_v bias,
+# not by appending to the observation.
 
 arena_x_limits = [
     [-5, 5], [-4, 4], [-5, 5], [-6, 6],
@@ -109,7 +110,6 @@ agent_params = {
     "reward_location": REWARD_LOCATION,
     "td_alpha": TD_ALPHA,
     "td_gamma": TD_GAMMA,
-    "n_pretrain_episodes": N_PRETRAIN_EPISODES,
 }
 
 # ── Build env and agent directly (no SingleSim — we need a custom loop) ───────
