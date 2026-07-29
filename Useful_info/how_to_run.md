@@ -36,12 +36,14 @@ the file between the two conditions, or set the env vars `TEM_USE_REWARD=1` /
 
 **Top-level flags:**
 ```python
-USE_REWARD          = False       # False = baseline, True = TEM-R (V(s) appended to observation)
+USE_REWARD          = False       # False = baseline, True = TEM-R (V(landmark) biases p via f_v)
 TEST_MODE           = False       # True = 10-episode smoke test
 TRAJECTORY_SEED     = 42          # keep identical in both runs
 REWARD_LOCATION     = [3.0, 3.0]
 TD_ALPHA            = 0.1         # tabular value-table learning rate
 TD_GAMMA            = 0.95
+N_LANDMARKS         = 10          # unique, never-duplicated landmark objects (both conditions share these)
+LANDMARK_BIAS_SCALE = 2.0         # exponential length scale biasing landmark placement toward REWARD_LOCATION
 ```
 
 **Run order:**
@@ -71,24 +73,48 @@ change them.
 
 ---
 
-### How V(s) reaches TEM
+### Landmarks: solving sensory ambiguity at the source
 
-TEM-R uses a TD-learned, **state-keyed** value `V(s_t)`, but it is **not**
+Only 45 sensory objects are spread across up to 144 states per environment,
+so most objects repeat and the observation alone can't tell two same-object
+states apart. `DiscreteObjectEnvironment` now reserves object ids
+`[0, N_LANDMARKS)` and places each at exactly one state per environment —
+never duplicated — sampled without replacement, weighted toward states closer
+to `reward_location` (`exp(-distance / landmark_bias_scale)`; see
+`generate_objects()` in
+[discritized_objects.py](../neuralplayground/arenas/discritized_objects.py)).
+The remaining objects still repeat freely, exactly as before.
+
+This is enabled for **both conditions** — `discrete_env_params["n_landmarks"]`
+is set unconditionally, not gated by `USE_REWARD` — so baseline and TEM-R
+share the identical environment and trajectory, and only the value mechanism
+differs between them. (A never-duplicated object is inherently a better
+localisation anchor regardless of value, so sharing the layout is what keeps
+the baseline-vs-TEM-R comparison about the value mechanism specifically — see
+`experiment_changes.md`'s methodological note.)
+
+### How V(landmark) reaches TEM
+
+TEM-R uses a TD-learned value keyed by **held landmark identity**, not
 appended to the observation. The model's sensory pathway (`Model.f_c`'s
 argmax-based two-hot lookup, and the cross-entropy loss's argmax-based
 labelling) turned out to discard a continuous channel tacked onto the one-hot
 `x` almost entirely — see `experiment_changes.md`'s "Superseded designs"
-section 3 for the full investigation. Instead, `V(s_t)` is passed as a
-separate scalar that biases the inferred place-cell code directly, via new
-`f_v` layers in `Model.inf_p()` (one `Linear(1, n_p[f])` per frequency
-module), created only when `use_reward=True`. `n_x` is identical between
-conditions — there is no width bump anywhere anymore.
+section 3 for the full investigation. Instead, `V` is passed as a separate
+scalar that biases the inferred place-cell code directly, via `f_v` layers in
+`Model.inf_p()` (one `Linear(1, n_p[f])` per frequency module), created only
+when `use_reward=True`. `n_x` is identical between conditions — there is no
+width bump anywhere.
 
-The table itself is still indexed by physical grid state, not object identity
-— since only 45 objects are spread across up to 144 states per environment,
-many states share the same sensory object, and keying `V` by state (rather
-than by object) is what lets those otherwise-identical states carry different
-values, independent of how that value reaches TEM.
+The table is indexed by **landmark id** (size `N_LANDMARKS=10`), not physical
+state. The agent tracks the most recently encountered landmark
+(`agent.held_landmark`) and **keeps using it, unchanged, with no decay**,
+across every non-landmark step until the next landmark is reached — so reward
+received anywhere "in a landmark's zone" credits that landmark, not just the
+literal tile it occupies. *(A decaying hold — fading the held value toward
+zero the longer it's been since the last landmark — was considered and
+deliberately deferred; revisit if the hard hold over-credits landmarks for
+reward received long after leaving their zone.)*
 
 There is no pretrain/gating delay in this design: TD updates run from episode
 0. Early in training `V` is near zero everywhere (initialised to zero), so
@@ -107,7 +133,7 @@ is learned — there's no separate warm-up phase to configure.
 | `params.dict` | Full training metadata (`agent_class`, `agent_params`, `env_class`, `env_params`, `training_loop_params`) |
 | `training_hist.dict` | Per-episode loss history |
 | `whittington_2020_model.py` | Copy of the model file at save time |
-| `td_value_table` | Pickled list of per-environment `V` arrays (`agent.td.V`), one entry per state in that environment (sizes vary: 100/64/100/144) — **TEM-R only** |
+| `td_value_table` | Pickled list of per-environment `V` arrays (`agent.td.V`), shape `(n_landmarks,)` each — **TEM-R only** |
 | `plots/episode_<N>/` | Eval snapshots every 1 000 episodes (see `_tem_eval.py`) |
 
 **Approximate runtime:** ~3 hours per condition on a CUDA GPU.
@@ -124,19 +150,20 @@ Not run directly. Called by the training loop every `eval_interval=1000` episode
 |---|---|
 | `p_rates.npy` | Place cell rate maps, shape `(n_states, total_p_cells)`. Used by `tem_predictive_analysis.py`. |
 | `g_rates.npy` | Grid cell rate maps, shape `(n_states, total_g_cells)`. |
-| `v_table.npy` | `V(s)`, shape `(n_states,)`. **TEM-R only.** This is just `agent.td.V[0][:n_states]` directly — the table is already state-indexed, no projection needed. |
+| `v_table.npy` | `V(landmark)` projected onto each landmark's unique state, shape `(n_states,)`, `NaN` everywhere else. **TEM-R only.** |
 | `trajectory.png` | Last 500 steps of env 0 trajectory (green = start, red = end, gold star = reward). |
-| `value_map.png` | `V(s)` reshaped to 2D grid. **TEM-R only.** |
-| `object_value_map.png` | `V(s)` heatmap with each cell's object id overlaid as text, and lime boxes around every state sharing the reward state's object — checks whether repeated-object states actually end up with *different* values. **TEM-R only.** |
+| `value_map.png` | Landmark `V` on the 2D grid (gray = non-landmark state), reward marked with a cyan star. **TEM-R only.** |
+| `object_value_map.png` | Same heatmap + every cell's object id overlaid as text, lime boxes around the `n_landmarks` landmark states — checks whether landmarks closer to the reward end up with higher learned value. **TEM-R only.** |
 | `place_cells_<freq>.png` | Up to 30 place cell rate maps per frequency module. |
 | `grid_cells_<freq>.png` | Up to 30 grid cell rate maps per frequency module. |
 
 Uses the last `EVAL_STEPS = 500` steps from `obs_history`. Only env 0 is evaluated.
 
-When `agent.use_reward` is set, `run_eval` also builds a `V(s)` sequence for
-env 0 and passes it alongside (not concatenated onto) the observation, mirroring
-`agent._value_for_history` — required so the eval forward pass exercises the
-same `f_v` place-cell bias the model was actually trained with.
+When `agent.use_reward` is set, `run_eval` also builds a `V(held landmark)`
+sequence for env 0 and passes it alongside (not concatenated onto) the
+observation, mirroring `agent._value_for_history` — required so the eval
+forward pass exercises the same `f_v` place-cell bias the model was actually
+trained with.
 
 ---
 
@@ -235,18 +262,22 @@ python tem_probe_eval.py
 ### DiscreteObjectEnvironment parameters
 
 ```python
-state_density   = 1        # one grid state per unit area
-n_objects       = 45       # sensory feature dimension (base n_x, unaffected by TEM-R's +1 input widening)
-agent_step_size = 1
+state_density       = 1        # one grid state per unit area
+n_objects           = 45       # sensory feature dimension (n_x — identical in both conditions)
+agent_step_size     = 1
+n_landmarks         = 10       # ids [0, 10) — unique per env, never duplicated, shared by both conditions
+reward_location     = [3.0, 3.0]
+landmark_bias_scale = 2.0      # exp(-distance/scale) weighting toward reward_location when placing landmarks
 ```
 
 **Starting position:** `[0, 0]` in both conditions (`random_start=False`).
 **Reward location:** `[3.0, 3.0]` in every one of the 16 environments — a fixed
 physical coordinate, mapped per-environment to the nearest grid state
-(`agent._compute_reward_state_ids`). Because each environment's object layout is
-randomised independently, the sensory *object* occupying that location differs
-across environments; the per-environment TD table only ever sees its own
-environment's object-reward pairing.
+(`agent._compute_reward_state_ids`). Each environment's full object layout
+(including which specific states the 10 landmarks land on) is randomised
+independently per environment, biased toward that environment's own version of
+this coordinate; the per-environment TD table only ever sees its own
+environment's landmark-reward geometry.
 
 ### TEM Hyperparameters
 
@@ -264,9 +295,9 @@ environment's object-reward pairing.
 
 | Parameter | Value |
 |---|---|
-| Representation | Tabular, one array per environment sized to that env's state count (`agent.td.V`, sizes 100/64/100/144) |
-| Indexing | Physical state id — **not** object identity (two states sharing an object can differ) |
-| Update rule | TD(0): `V[s_prev] += alpha * (r + gamma * V[s_curr] - V[s_prev])` |
+| Representation | Tabular, one `(n_landmarks,)` array per environment (`agent.td.V`) |
+| Indexing | Held landmark id (`agent.held_landmark`) — the most recently encountered landmark, carried forward **unchanged, no decay** across non-landmark steps |
+| Update rule | TD(0): `V[held_prev] += alpha * (r + gamma * V[held_curr] - V[held_prev])` |
 | Update frequency | Every accepted step (online), in `batch_act()` |
 | Reward | `r = 1.0` if the new state is the nearest state to `reward_location`, else `0.0` |
 | Reaches TEM via | `Model.inf_p`'s `f_v` bias on the place-cell code `p` — **not** concatenated onto the observation `x` (see `experiment_changes.md`) |

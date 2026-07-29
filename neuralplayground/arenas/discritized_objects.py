@@ -105,6 +105,13 @@ class DiscreteObjectEnvironment(Environment):
 
         self.n_objects = env_kwargs["n_objects"]
         self.state_density = env_kwargs["state_density"]
+        # TEM-R landmarks: reserve object ids [0, n_landmarks) to each occupy
+        # exactly one state (never duplicated), optionally biased to land
+        # closer to reward_location. n_landmarks=0 (default) reproduces the
+        # original fully-random-with-replacement layout exactly.
+        self.n_landmarks = env_kwargs.get("n_landmarks", 0)
+        self.reward_location = env_kwargs.get("reward_location", None)
+        self.landmark_bias_scale = env_kwargs.get("landmark_bias_scale", 2.0)
         self.arena_limits = np.array(
             [
                 [self.arena_x_limits[0], self.arena_x_limits[1]],
@@ -275,6 +282,13 @@ class DiscreteObjectEnvironment(Environment):
         """Generate objects in the environment. In this case, the objects are
         one-hot encoded vectors.
 
+        If ``self.n_landmarks > 0``, object ids ``[0, n_landmarks)`` are each
+        placed at exactly one state (never duplicated within this
+        environment), sampled without replacement with probability biased
+        toward states closer to ``self.reward_location`` (if set). The
+        remaining ``n_objects - n_landmarks`` ids are distributed across all
+        other states exactly as before: uniform random, with replacement.
+
         Returns
         -------
             objects: ndarray (n_states, n_objects)
@@ -286,12 +300,73 @@ class DiscreteObjectEnvironment(Environment):
             for j in range(self.n_objects):
                 if j == i:
                     poss_objects[i][j] = 1
-        # Generate landscape of objects in each environment
         objects = np.zeros(shape=(self.n_states, self.n_objects))
-        for i in range(self.n_states):
-            rand = random.randint(0, self.n_objects - 1)
-            objects[i, :] = poss_objects[rand]
+
+        if self.n_landmarks > 0:
+            state_xy = self.xy_combination.reshape(-1, 2)
+            if self.reward_location is not None:
+                dist = np.linalg.norm(state_xy - np.array(self.reward_location), axis=1)
+                weights = np.exp(-dist / self.landmark_bias_scale)
+            else:
+                weights = np.ones(self.n_states)
+            landmark_states = self._weighted_sample_without_replacement(
+                list(range(self.n_states)), weights.tolist(), self.n_landmarks
+            )
+            decoy_states = [s for s in range(self.n_states) if s not in set(landmark_states)]
+            for landmark_id, state_id in enumerate(landmark_states):
+                objects[state_id, :] = poss_objects[landmark_id]
+            for state_id in decoy_states:
+                rand = random.randint(self.n_landmarks, self.n_objects - 1)
+                objects[state_id, :] = poss_objects[rand]
+        else:
+            # Generate landscape of objects in each environment
+            for i in range(self.n_states):
+                rand = random.randint(0, self.n_objects - 1)
+                objects[i, :] = poss_objects[rand]
         return objects
+
+    @staticmethod
+    def _weighted_sample_without_replacement(population, weights, k):
+        """Sample k distinct items from population, weighted, without replacement.
+
+        Uses the stdlib ``random`` module exclusively (not numpy) so object
+        layouts stay reproducible under the same ``random.seed`` used
+        elsewhere for object generation (see Useful_info/how_to_run.md's
+        "Seed reproducibility" section).
+
+        Parameters
+        ----------
+        population : list
+            Items to sample from.
+        weights : list[float]
+            Non-negative weight per item, same length as population.
+        k : int
+            Number of distinct items to draw.
+
+        Returns
+        -------
+        list, length k
+            Sampled items, without replacement.
+        """
+        population = list(population)
+        weights = list(weights)
+        chosen = []
+        for _ in range(k):
+            total = sum(weights)
+            r = random.uniform(0, total)
+            upto = 0.0
+            for idx, w in enumerate(weights):
+                upto += w
+                if upto >= r:
+                    chosen.append(population[idx])
+                    population.pop(idx)
+                    weights.pop(idx)
+                    break
+            else:
+                # Floating-point edge case: fall back to the last item.
+                chosen.append(population.pop())
+                weights.pop()
+        return chosen
 
     def make_object_observation(self, pos):
         """Make an observation of the object in the environment at the current

@@ -43,6 +43,8 @@ TRAJECTORY_SEED       = 42
 REWARD_LOCATION       = [3.0, 3.0]
 TD_ALPHA              = 0.1
 TD_GAMMA              = 0.95
+N_LANDMARKS           = 10   # unique, never-duplicated landmark objects per env (shared by both conditions)
+LANDMARK_BIAS_SCALE   = 2.0  # exponential length scale biasing landmarks toward REWARD_LOCATION
 
 N_TOTAL_EPISODES  = 100   if TEST_MODE else 5_000
 N_PHASE1_EPISODES = 50    if TEST_MODE else 2_500
@@ -89,6 +91,9 @@ discrete_env_params = {
     "use_behavioural_data": False,
     "data_path": None,
     "experiment_class": Sargolini2006Data,
+    "n_landmarks": N_LANDMARKS,
+    "reward_location": REWARD_LOCATION,
+    "landmark_bias_scale": LANDMARK_BIAS_SCALE,
 }
 env_params = {
     "environment_name": "BatchEnvironment",
@@ -110,6 +115,7 @@ agent_params = {
     "reward_location": REWARD_LOCATION,
     "td_alpha": TD_ALPHA,
     "td_gamma": TD_GAMMA,
+    "n_landmarks": N_LANDMARKS,
 }
 
 # ── Build env and agent directly (no SingleSim — we need a custom loop) ───────

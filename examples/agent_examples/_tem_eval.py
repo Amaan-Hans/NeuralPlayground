@@ -45,13 +45,17 @@ def run_eval(agent, env, episode: int, eval_save_path: str):
 
     # Filter out the dummy placeholder rows (state_id == -1) that batch_act
     # inserts for env 0 on the very first step before any real observation.
-    real_history = [step for step in agent.obs_history if step[0][0] != -1]
+    # held_landmark_history is appended in lockstep with obs_history (see
+    # agent.batch_act), so the same index filtering keeps them aligned.
+    real_indices = [i for i, step in enumerate(agent.obs_history) if step[0][0] != -1]
+    real_history = [agent.obs_history[i] for i in real_indices]
     real_actions = agent.walk_actions[-len(real_history):]
 
     n_steps = min(EVAL_STEPS, len(real_history))
     if n_steps == 0:
         return
     history_slice = real_history[-n_steps:]
+    held_indices = real_indices[-n_steps:]
     walk_slice = real_actions[-n_steps:]
 
     n_obs = len(history_slice[0][0][1])
@@ -63,17 +67,19 @@ def run_eval(agent, env, episode: int, eval_save_path: str):
     locations_seq = [[{"id": step[0][0], "shiny": None}] for step in history_slice]
     obs_seq = np.array([step[0][1] for step in history_slice], dtype=np.float32)
 
-    # V(s) reaches TEM via Model.inf_p's f_v bias, passed as a separate
-    # model_input element (never concatenated onto the observation) — mirrors
-    # agent._value_for_history used during training.
+    # V(held landmark) reaches TEM via Model.inf_p's f_v bias, passed as a
+    # separate model_input element (never concatenated onto the observation)
+    # — mirrors agent._value_for_history used during training.
     v_seq = None
     if agent.use_reward and agent.td is not None:
         v_table = agent.td.V[0]
         v_max = float(np.max(v_table))
         v_seq = np.zeros(obs_seq.shape[0], dtype=np.float32)
-        for i in range(obs_seq.shape[0]):
-            sid = history_slice[i][0][0]
-            v_t = float(v_table[sid]) if 0 <= sid < v_table.shape[0] else 0.0
+        for i, idx in enumerate(held_indices):
+            key = agent.held_landmark_history[idx][0]
+            if key is None:
+                continue
+            v_t = float(v_table[key]) if 0 <= key < v_table.shape[0] else 0.0
             v_seq[i] = v_t / v_max if v_max > 0 else 0.0
 
     action_values = agent.step_to_actions(walk_slice)
@@ -144,9 +150,20 @@ def run_eval(agent, env, episode: int, eval_save_path: str):
     np.save(os.path.join(ep_dir, "g_rates.npy"), g_all)
 
     if agent.use_reward and agent.td is not None:
-        # V is keyed directly by state id, so the table already *is* the
-        # per-state value array — no per-step obs lookup needed.
-        v_per_state = np.array(agent.td.V[0][:n_states], dtype=np.float32)
+        # V is keyed by landmark identity (agent.td.V[0] has shape
+        # (n_landmarks,)), not by state. Each landmark occupies exactly one
+        # state in this environment's layout, so project the table onto
+        # those states for spatial plotting; every other (non-landmark)
+        # state has no fixed value of its own (its "context" while passing
+        # through is whatever landmark was last held, which is path-
+        # dependent) and is left as NaN rather than implying a value of 0.
+        object_layout = env.environments[0].objects  # (n_states, n_objects) one-hot
+        object_ids_per_state = np.argmax(object_layout, axis=1)
+        v_per_state = np.full(n_states, np.nan, dtype=np.float32)
+        for sid in range(n_states):
+            obj_id = int(object_ids_per_state[sid])
+            if obj_id < agent.n_landmarks:
+                v_per_state[sid] = agent.td.V[0][obj_id]
         np.save(os.path.join(ep_dir, "v_table.npy"), v_per_state)
 
     # ── 1. Trajectory ─────────────────────────────────────────────────────────
@@ -170,38 +187,41 @@ def run_eval(agent, env, episode: int, eval_save_path: str):
     plt.close(fig)
 
     # ── 2. Value map (reward condition only) ──────────────────────────────────
+    # NaN (non-landmark states) renders as gray via cmap.set_bad, so the
+    # n_landmarks coloured cells stand out directly against a blank background.
     if agent.use_reward and agent.td is not None and n_states == room_d * room_w:
         v_grid = np.reshape(v_per_state, (room_d, room_w))
+        cmap = plt.get_cmap("hot").copy()
+        cmap.set_bad(color="gray")
+
         fig, ax = plt.subplots(figsize=(6, 5))
-        im = ax.imshow(v_grid, origin="lower", cmap="hot", aspect="auto")
-        plt.colorbar(im, ax=ax, label="V(s)")
-        ax.set_title(f"Value Function V(s) – env 0 – episode {episode}")
+        im = ax.imshow(v_grid, origin="lower", cmap=cmap, aspect="auto")
+        plt.colorbar(im, ax=ax, label="V(landmark)")
+        rx, ry = agent.reward_location
+        ax.scatter([rx + room_w / 2 - 0.5], [ry + room_d / 2 - 0.5], c="cyan", s=120,
+                   marker="*", zorder=6, label="reward")
+        ax.legend(fontsize=7)
+        ax.set_title(f"Landmark value V — env 0 – episode {episode}\n"
+                     f"(gray = non-landmark state, no fixed value of its own)")
         ax.set_xlabel("x bin")
         ax.set_ylabel("y bin")
         fig.tight_layout()
         fig.savefig(os.path.join(ep_dir, "value_map.png"), dpi=150)
         plt.close(fig)
 
-        # ── 2b. Object identity overlaid on V(s) ───────────────────────────────
-        # V is now keyed by physical state, not object id, specifically so
-        # that states sharing the same object (lime boxes) can carry
-        # *different* values depending on grid distance from the reward —
-        # this plot is the direct check of whether that differentiation is
-        # actually happening (vs. the lime-boxed states all looking similar,
-        # which would mean the object identity is still dominating).
-        object_layout = env.environments[0].objects          # (n_states, n_objects) one-hot
+        # ── 2b. Object identity overlaid on landmark value ──────────────────────
+        # Checks the thing landmark placement is meant to produce: landmarks
+        # sampled closer to the reward (see DiscreteObjectEnvironment's
+        # landmark_bias_scale) should end up with higher learned V than ones
+        # placed farther away.
+        object_layout = env.environments[0].objects  # (n_states, n_objects) one-hot
         object_ids_per_state = np.argmax(object_layout, axis=1)
         obj_grid = np.reshape(object_ids_per_state, (room_d, room_w))
-
-        reward_state_id = agent.reward_state_ids[0]
-        reward_object_id = int(object_ids_per_state[reward_state_id])
-        same_object_mask = np.reshape(
-            object_ids_per_state == reward_object_id, (room_d, room_w)
-        )
+        is_landmark_grid = np.reshape(object_ids_per_state < agent.n_landmarks, (room_d, room_w))
 
         fig, ax = plt.subplots(figsize=(7, 6))
-        im = ax.imshow(v_grid, origin="lower", cmap="hot", aspect="auto")
-        plt.colorbar(im, ax=ax, label="V(o)")
+        im = ax.imshow(v_grid, origin="lower", cmap=cmap, aspect="auto")
+        plt.colorbar(im, ax=ax, label="V(landmark)")
 
         for row in range(room_d):
             for col in range(room_w):
@@ -209,18 +229,20 @@ def run_eval(agent, env, episode: int, eval_save_path: str):
                     col, row, str(int(obj_grid[row, col])),
                     ha="center", va="center", fontsize=6, color="cyan",
                 )
-                if same_object_mask[row, col]:
+                if is_landmark_grid[row, col]:
                     ax.add_patch(
                         mpatches.Rectangle(
                             (col - 0.5, row - 0.5), 1, 1,
                             fill=False, edgecolor="lime", linewidth=2,
                         )
                     )
+        ax.scatter([rx + room_w / 2 - 0.5], [ry + room_d / 2 - 0.5], c="cyan", s=120,
+                   marker="*", zorder=6, label="reward")
+        ax.legend(fontsize=7)
 
         ax.set_title(
-            f"Object id (cyan text) + V(s) heatmap – env 0 – episode {episode}\n"
-            f"lime boxes = every state sharing the reward object (id {reward_object_id}) — "
-            f"now expected to differ"
+            f"Object id (cyan text) + landmark V – env 0 – episode {episode}\n"
+            f"lime boxes = the {agent.n_landmarks} landmark states (ids 0..{agent.n_landmarks - 1})"
         )
         ax.set_xlabel("x bin")
         ax.set_ylabel("y bin")

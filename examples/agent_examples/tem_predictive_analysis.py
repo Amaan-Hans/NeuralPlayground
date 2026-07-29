@@ -154,8 +154,16 @@ def plot_population_activity_maps():
 # ── Analysis 2: Value-cell correlation over episodes ──────────────────────────
 
 def plot_value_correlation():
-    """Correlation between mean place cell activity per state and V(s).
-    Only possible for reward_modulated (V table only saved there).
+    """Correlation between mean place cell activity and V(landmark), evaluated
+    only at the landmark states. Only possible for reward_modulated (V table
+    only saved there).
+
+    v_table.npy is V(landmark) projected onto each landmark's unique state,
+    NaN everywhere else (non-landmark states have no fixed value of their
+    own — see Useful_info/experiment_changes.md). Correlating against the
+    full (mostly-NaN) array makes np.corrcoef return NaN for every checkpoint
+    — that's why this plot used to come out blank. Restrict to the
+    non-NaN (landmark) entries instead.
     """
     eps = _episode_dirs(REWARD_DIR)
     episodes, correlations = [], []
@@ -166,11 +174,15 @@ def plot_value_correlation():
         if p is None or v is None:
             continue
         mean_act = p.mean(axis=1)                       # (N_STATES,)
+        valid = ~np.isnan(v)
+        if valid.sum() < 2:
+            continue
+        mean_act_valid, v_valid = mean_act[valid], v[valid]
         # Pearson correlation
-        if mean_act.std() < 1e-8 or v.std() < 1e-8:
+        if mean_act_valid.std() < 1e-8 or v_valid.std() < 1e-8:
             corr = 0.0
         else:
-            corr = float(np.corrcoef(mean_act, v)[0, 1])
+            corr = float(np.corrcoef(mean_act_valid, v_valid)[0, 1])
         episodes.append(ep)
         correlations.append(corr)
 
@@ -182,8 +194,8 @@ def plot_value_correlation():
     ax.plot(episodes, correlations, "o-", color="darkorange", linewidth=2)
     ax.axhline(0, color="gray", linestyle="--", linewidth=0.8)
     ax.set_xlabel("Episode")
-    ax.set_ylabel("Pearson r  (mean place activity vs V(s))")
-    ax.set_title("Place cell–value correlation over training\n(reward_modulated, env 0)")
+    ax.set_ylabel("Pearson r  (mean place activity vs V, at landmark states)")
+    ax.set_title("Place cell–value correlation over training\n(reward_modulated, env 0, landmark states only)")
     fig.tight_layout()
     fname = os.path.join(OUT_DIR, "value_correlation.png")
     fig.savefig(fname, dpi=150)

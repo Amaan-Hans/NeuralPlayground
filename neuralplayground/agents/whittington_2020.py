@@ -97,14 +97,24 @@ class Whittington2020(AgentCore):
             state_density: float
                 density of agent states (should be proportional to the step-size)
             use_reward: bool
-                If True, a TD-learned value V(s) biases place-cell inference
-                via Model.inf_p's f_v layers. Default False.
+                If True, a TD-learned value biases place-cell inference via
+                Model.inf_p's f_v layers. Default False.
             reward_location: list [x, y]
                 Coordinates of the reward site. Default [3.0, 3.0].
             td_alpha: float
-                TD learning rate for the tabular V(s). Default 0.1.
+                TD learning rate for the tabular value table. Default 0.1.
             td_gamma: float
                 Discount factor for TD updates. Default 0.9.
+            n_landmarks: int
+                Number of landmark object ids (must match the environment's
+                ``n_landmarks``, reserved as ids [0, n_landmarks)). Each
+                landmark occupies exactly one state in a given environment
+                (never duplicated — see DiscreteObjectEnvironment), so value
+                is keyed by landmark identity rather than physical state: the
+                agent holds the most recently encountered landmark's id as
+                "context" and keeps using it (no decay) until the next
+                landmark is reached, even across many non-landmark steps in
+                between. Default 10.
 
         """
         super().__init__()
@@ -141,12 +151,15 @@ class Whittington2020(AgentCore):
         self.reward_state_ids = self._compute_reward_state_ids()
         self.episode_count = 0
 
-        # --- Tabular value head V(s), indexed by physical grid state ---
-        # Many states share the same sensory object (n_x=45 objects spread
-        # over up to 144 states per env), so two indistinguishable-by-object
-        # states can still carry different V if keyed by state id — that's
-        # the whole point: it differentiates states an object-keyed table
-        # would conflate.
+        # --- Tabular value head V(landmark), indexed by held landmark identity ---
+        # Landmark object ids [0, n_landmarks) are each placed at exactly one
+        # (never-duplicated) state per environment by DiscreteObjectEnvironment,
+        # so unlike the other ~35 objects there is no state-vs-object ambiguity
+        # for them. The agent holds the most recently encountered landmark id
+        # as "context" (self.held_landmark) and keeps using it, unchanged,
+        # across every non-landmark step until the next landmark is reached —
+        # this is what lets a single TD(0) chain credit reward received while
+        # "in a landmark's zone" back to that landmark, even far from it.
         #
         # V is NOT appended to the observation x: Model.f_c compresses x via
         # argmax-then-fixed-lookup (two_hot_table) and the generative loss
@@ -155,12 +168,13 @@ class Whittington2020(AgentCore):
         # Instead V is passed alongside x as a separate model_input element and
         # enters through Model.inf_p's f_v bias (self.pars["use_value_bias"]
         # set above), which has a real, gradient-carrying path into p.
+        self.n_landmarks = mod_kwargs.get("n_landmarks", 10)
         if self.use_reward:
             from neuralplayground.agents.td_value_head import TDValueHead
 
             self.td = TDValueHead(
                 n_envs=self.batch_size,
-                n_keys_per_env=self.n_states,
+                n_keys_per_env=[self.n_landmarks] * self.batch_size,
                 alpha=self.td_alpha,
                 gamma=self.td_gamma,
             )
@@ -189,6 +203,12 @@ class Whittington2020(AgentCore):
         ]
         if self.td is not None:
             self.td.reset_all()
+        # Most recently encountered landmark id per env (None until the first
+        # landmark is reached). held_landmark_history is parallel to
+        # obs_history: held_landmark_history[i] is the context that was held
+        # AT obs_history[i], i.e. before that step's transition is processed.
+        self.held_landmark = [None] * self.batch_size
+        self.held_landmark_history = []
 
     def _compute_reward_state_ids(self):
         """Find the state index nearest to reward_location for each environment."""
@@ -284,18 +304,23 @@ class Whittington2020(AgentCore):
             if all_allowed:
                 self.walk_actions.append(self.prev_actions.copy())
                 self.obs_history.append(self.prev_observations.copy())
-                # TD(0) backup for the transition s_prev -> s (observations),
-                # keyed by physical state id.
+                # Record the context held AT prev_observations (i.e. before
+                # this step's transition updates it below) so it stays aligned
+                # with obs_history for later lookups in _value_for_history.
+                self.held_landmark_history.append(self.held_landmark.copy())
+                # TD(0) backup for the transition held_prev -> held_curr, where
+                # held_* is the most recently encountered landmark id (context
+                # persists, unchanged, across non-landmark steps).
                 if self.td is not None:
-                    state_ids = [
-                        observations[i][0] if observations[i][0] >= 0 else None
-                        for i in range(self.batch_size)
-                    ]
+                    for i in range(self.batch_size):
+                        obj_id = self._object_id(observations[i])
+                        if obj_id is not None and obj_id < self.n_landmarks:
+                            self.held_landmark[i] = obj_id
                     rewards = [
                         1.0 if observations[i][0] == self.reward_state_ids[i] else 0.0
                         for i in range(self.batch_size)
                     ]
-                    self.td.update(state_ids, rewards)
+                    self.td.update(self.held_landmark.copy(), rewards)
                 for batch in range(self.pars["batch_size"]):
                     new_actions.append(self.action_policy())
                 self.prev_actions = new_actions
@@ -312,29 +337,44 @@ class Whittington2020(AgentCore):
 
         return new_actions
 
-    def _value_for_history(self, history):
+    def _object_id(self, obs_entry):
+        """Return the object index for an observation entry, or None if invalid.
+
+        ``obs_entry[1]`` is the one-hot sensory vector for a real observation,
+        or a placeholder scalar (``-1``) before the agent's first real step.
+        Used only to detect whether the current object is a landmark
+        (id < n_landmarks) — the value table itself is keyed by held landmark
+        id, not by object id directly.
+        """
+        vec = np.atleast_1d(np.asarray(obs_entry[1], dtype=np.float32))
+        n_x = self.pars["n_x"]
+        if vec.shape != (n_x,):
+            return None
+        return int(np.argmax(vec))
+
+    def _value_for_history(self, held_landmark_history):
         """Build the per-step, per-env value tensor fed to Model.inf_p's f_v bias.
 
-        ``history`` is a list of length n_rollout, each element a list of
-        length batch_size of ``[state_id, obs_vec, position]`` entries (the
-        same shape as ``obs_history``/the local ``history`` slice in
-        ``update()`` and ``collect_final_trajectory()``). V is looked up per
-        environment from the state-indexed table and max-normalised to [0, 1]
-        so its scale stays stable regardless of absolute reward magnitude.
-        This is a separate side-channel from the observation — it is never
-        concatenated onto x.
+        ``held_landmark_history`` is a list of length n_rollout, each element
+        a list of length batch_size of held-landmark ids (or None), aligned
+        with the corresponding slice of ``obs_history``/``held_landmark_history``
+        (see ``batch_act()``). V is looked up per environment from the
+        landmark-indexed table and max-normalised to [0, 1] so its scale stays
+        stable regardless of absolute reward magnitude. This is a separate
+        side-channel from the observation — it is never concatenated onto x.
 
         Returns
         -------
         list of torch.Tensor, length n_rollout, each shape (batch_size,)
         """
         v_steps = []
-        for step in history:
-            v_step = np.zeros(len(step), dtype=np.float32)
-            for env_i, env_step in enumerate(step):
-                state_id = env_step[0]
+        for held_step in held_landmark_history:
+            v_step = np.zeros(len(held_step), dtype=np.float32)
+            for env_i, key in enumerate(held_step):
+                if key is None:
+                    continue
                 v_table = self.td.V[env_i]
-                v_t = float(v_table[state_id]) if 0 <= state_id < v_table.shape[0] else 0.0
+                v_t = float(v_table[key]) if 0 <= key < v_table.shape[0] else 0.0
                 v_max = float(np.max(v_table))
                 v_step[env_i] = v_t / v_max if v_max > 0 else 0.0
             v_steps.append(torch.from_numpy(v_step).type(torch.float32).to(self.device))
@@ -378,9 +418,14 @@ class Whittington2020(AgentCore):
         for param_group in self.adam.param_groups:
             param_group["lr"] = self.lr
 
-        # V(s_t) is passed alongside the observation, not concatenated onto it
-        # (see Model.inf_p's f_v bias). The Hebbian update is left unmodulated.
-        v_steps = self._value_for_history(history) if self.use_reward else None
+        # V(held landmark) is passed alongside the observation, not
+        # concatenated onto it (see Model.inf_p's f_v bias). The Hebbian
+        # update is left unmodulated.
+        if self.use_reward:
+            held_slice = self.held_landmark_history[-self.pars["n_rollout"]:]
+            v_steps = self._value_for_history(held_slice)
+        else:
+            v_steps = None
 
         # Collect all information in walk variable.
         model_input = []
@@ -628,7 +673,11 @@ class Whittington2020(AgentCore):
         actions = self.walk_actions[-self.n_walk :]
         action_values = self.step_to_actions(actions)
 
-        v_steps = self._value_for_history(history) if self.use_reward else None
+        if self.use_reward:
+            held_slice = self.held_landmark_history[-self.n_walk:]
+            v_steps = self._value_for_history(held_slice)
+        else:
+            v_steps = None
 
         model_input = [
             [

@@ -1,189 +1,222 @@
-# Experiment Changes: TEM-R — State-Keyed TD Value via Place-Cell Bias
+# Experiment Changes: TEM-R — Held-Landmark TD Value via Place-Cell Bias
 
 ## Overview
 
-Two conditions are compared: **baseline TEM** (no reward) and **TEM-R** (value-
-biased TEM). Both conditions follow identical trajectories (same seed), start
-at `[0,0]`, and are evaluated every 1000 episodes with plots and raw data saved
-for post-hoc analysis. Each condition runs for **5000 episodes**.
+Two conditions are compared: **baseline TEM** (no value mechanism) and
+**TEM-R** (value-biased TEM). Both share the *same* environment layout —
+including the landmark scheme described below — and the same trajectory seed,
+so the environment and the path walked are identical either way; only the
+agent's use of a value mechanism differs. Each condition runs for **5000
+episodes**, evaluated every 1000 episodes with plots and raw data saved for
+post-hoc analysis.
 
-> This document supersedes three earlier designs: a neural value head that
-> gated the Hebbian update, a tabular value head keyed by object identity, and
-> a tabular value keyed by state but concatenated onto the observation `x`.
-> All three have been fully removed — see "Superseded designs" at the bottom.
+> This document supersedes four earlier designs: a neural value head that
+> gated the Hebbian update; a tabular value head keyed by object identity;
+> a tabular value keyed by state but concatenated onto the observation `x`;
+> and a tabular value keyed by state, biasing place cells via `f_v` but with
+> one table entry per physical grid state. All four have been fully removed —
+> see "Superseded designs" at the bottom.
 
-### Baseline TEM (no changes to original TEM)
-- Observation `x`: environmental features only (45-dim object one-hot)
+### Baseline TEM (no value mechanism)
 - Hebbian update (uniform, unmodulated): `M = λM + η(p − p̂)(p + p̂)ᵀ`
+- Same landmark-equipped environment as TEM-R (see Change 0) — landmarks
+  exist in the layout either way, baseline just never attaches a value to them.
 
 ### TEM-R (current design)
 
-**Change 1 — Tabular TD value head, indexed by physical grid state**
+**Change 0 — Landmarks: a small set of objects that never duplicate**
 
-A lookup table `V[s]`, one array per environment sized to that environment's
-actual state count (100/64/100/144 depending on room size — `agent.n_states`),
-indexed by **state id** rather than object identity. Since there are only 45
-objects spread across up to 144 states per environment, many states are
-indistinguishable by their sensory object alone (see `how_to_run.md`'s note on
-object repetition). Keying `V` by state id breaks that ambiguity: two states
-holding the identical object can still carry different values depending on
-their own distance from the reward.
-
-Updated via plain TD(0) every accepted step in `batch_act()`:
+The root cause of every earlier indexing headache was that there are only 45
+sensory objects spread across up to 144 states per environment, so most
+objects necessarily repeat and a sensory observation alone can't disambiguate
+which physical state — or which "zone" relative to the reward — the agent is
+actually in. Design 0 fixes this at the *source*: `DiscreteObjectEnvironment`
+now reserves object ids `[0, N_LANDMARKS)` (`N_LANDMARKS=10`) and places each
+one at exactly one state per environment — never duplicated — sampled without
+replacement, weighted toward states closer to `reward_location`:
+```python
+weight(state) = exp(-distance(state, reward_location) / landmark_bias_scale)
 ```
-δ = r + γ · V[s_curr] − V[s_prev]
-V[s_prev] += α · δ
+(`landmark_bias_scale=2.0` by default — smaller = stronger pull toward the
+reward; see `DiscreteObjectEnvironment.generate_objects()` /
+`_weighted_sample_without_replacement()` in
+[discritized_objects.py](../neuralplayground/arenas/discritized_objects.py)).
+The remaining `n_objects - N_LANDMARKS` ids are distributed over all other
+states exactly as before (uniform random, with replacement — duplicates
+expected and fine). Sampling uses the stdlib `random` module exclusively (not
+numpy) so this stays reproducible under the same `random.seed` already used
+for object generation — verified empirically: baseline and TEM-R produce
+byte-for-byte identical object layouts and trajectories under the same seed.
+
+This is enabled for **both conditions** (it's an environment property, not a
+TEM-R-only feature) — see `Files Changed` §6 for why.
+
+**Change 1 — Tabular TD value head, indexed by held landmark identity**
+
+A lookup table `V[landmark_id]`, one `(N_LANDMARKS,)` array per environment.
+Because each landmark is unique within its environment, object identity and
+physical-state identity are the same thing for these 10 ids — no ambiguity,
+unlike the other ~35 objects.
+
+The agent tracks, per environment, the **most recently encountered landmark
+id** (`self.held_landmark`) and keeps using it — completely unchanged — across
+every non-landmark step until the next landmark is reached:
 ```
-`r = 1.0` if the new state is the nearest grid state to `reward_location`
-(same fixed `[x, y]` coordinate in every one of the 16 environments — see
-`how_to_run.md`), else `0.0`. No neural network, no gradient, no separate
-optimiser for the table itself — this is
-`neuralplayground/agents/td_value_head.py::TDValueHead`. Because consecutive
-states in a rollout are always spatially adjacent (the agent moves one step at
-a time), this is also a literal backward propagation of value through the
-grid graph, one edge at a time.
+δ = r + γ · V[held_curr] − V[held_prev]
+V[held_prev] += α · δ
+```
+`r = 1.0` if the new state is the nearest grid state to `reward_location`,
+else `0.0`. Note this means the agent can be credited for reward *while
+holding a landmark's context*, even many steps after physically leaving that
+landmark's state — value reflects the total reward experienced "in that
+landmark's zone," not literally at that one tile.
 
-**Change 2 — V(s) biases place-cell inference, not the observation**
+> **Hold-vs-decay (recorded for future reference, not yet implemented):** the
+> hold is currently a hard, permanent carry-forward — no time-based decay
+> toward zero the longer it's been since the landmark was last seen. A decaying
+> hold (e.g. exponential fade toward 0 as steps-since-last-landmark grows) was
+> considered and explicitly deferred — revisit this if the hard hold turns out
+> to over-credit landmarks for reward received long after leaving their zone.
 
-`V(s)` is **not** appended to `x`. Investigation showed the model's sensory
-pathway is fundamentally hostile to a continuous channel riding along with the
-one-hot object code:
-- `Model.f_c(x)` ([whittington_2020_model.py](../neuralplayground/agents/whittington_2020_extras/whittington_2020_model.py))
-  compresses `x` by `torch.argmax(x, dim=1)` then a **fixed** lookup into
-  `two_hot_table` — any appended continuous value is discarded; only the
-  identity of the max entry matters, and the true one-hot entry (`1.0`) always
-  wins argmax ties against a bounded `v_norm ∈ [0,1]`.
-- The generative cross-entropy loss derives `labels = torch.argmax(x, 1)` —
-  same story, the appended channel essentially never becomes the "true label."
-- The only place the raw value leaked through was a no-gradient heuristic
-  error term inside `inf_g` (comparing `x` against a generated `x_hat`) — not
-  a designed signal path.
+No neural network, no gradient, no separate optimiser for the table itself —
+this is `neuralplayground/agents/td_value_head.py::TDValueHead`, unchanged
+from earlier designs except for what `n_keys_per_env`/`keys` represent
+(landmark id, sized `N_LANDMARKS`, instead of physical state, sized
+`n_states`).
 
-Instead, `V(s)` is passed as a **separate scalar alongside** `x` (never
-concatenated into it) and enters through a new additive bias on the inferred
-place-cell code:
+**Change 2 — V(landmark) biases place-cell inference, not the observation**
+
+Unchanged from the previous design — still **not** appended to `x` (see
+"Superseded designs" #3 below for why that doesn't work). `V` is passed as a
+separate scalar alongside `x` and enters through an additive bias on the
+inferred place-cell code:
 ```python
 # Model.inf_p(), per frequency module f:
 mu_p = self.f_p(g_[f] * x_[f])
-mu_p = mu_p + self.f_v[f](v)     # NEW — only when use_value_bias=True
+mu_p = mu_p + self.f_v[f](v)     # only when use_value_bias=True
 ```
-`self.f_v` is a `ModuleList` of `Linear(1, n_p[f])` layers (one per frequency
-module), created in `Model.init_trainable()` only when
-`hyper["use_value_bias"]=True`, so the baseline model's parameter count and
-checkpoint shape are completely unaffected. `v` is `V(s)` max-normalised to
-`[0,1]` per environment (same normalisation rationale as before, now applied
-to a real continuous input rather than a one-hot slot). This gives `V` a
-genuine, gradient-carrying path into `p` — and from there into the loss,
-memory, and everything downstream — without touching `n_x`, `n_x_c`, or any of
-the fixed combinatorial/tiling matrices (`two_hot_table`, `W_tile`, `W_repeat`).
+`v` is `V[held_landmark]` max-normalised to `[0,1]` per environment. This part
+of the mechanism (the `f_v` bias itself) is unchanged from the previous
+design — only *what* `v` represents (held landmark value vs. raw per-state
+value) and *how often the underlying table changes* (only at landmark
+transitions vs. every step) changed in this round.
 
 **What is explicitly NOT done:** the Hebbian update is left completely
 unmodulated in both conditions; `x`/`n_x`/`n_x_c` are identical between
-conditions. TEM-R only differs from baseline in an additive bias on `p`.
+conditions; the hold has no decay (see callout above).
 
 ---
 
 ## Files Changed
 
-### 1. `neuralplayground/agents/whittington_2020_extras/whittington_2020_model.py`
+### 1. `neuralplayground/arenas/discritized_objects.py`
 
-**This file is now changed** (previously untouched across all earlier
-designs). Threaded a new optional `v` parameter through the forward chain:
-`forward()` → `iteration()` → `inference()` → `inf_p()`, reusing the existing
-optional-tuple-element convention (`step_data[3]` was already reserved for the
-unused `td_scale`/Hebbian-gating slot from the very first superseded design;
-`v` is `step_data[4]`).
+**New** (`DiscreteObjectEnvironment`): `__init__` reads `n_landmarks=0`,
+`reward_location=None`, `landmark_bias_scale=2.0` from `env_kwargs` (all
+optional, default reproduces the original fully-random layout exactly).
+`generate_objects()` branches on `n_landmarks > 0` to reserve and place
+landmark ids via the new static method `_weighted_sample_without_replacement`
+(stdlib `random` only, for seed reproducibility).
 
-- **`init_trainable()`**: creates `self.f_v` (`ModuleList` of
-  `Linear(1, n_p[f])`, one per frequency) only when
-  `self.hyper.get("use_value_bias", False)`.
-- **`inf_p(self, x_, g_, v=None)`**: adds `self.f_v[f](v)` to `mu_p` per
-  frequency when `v is not None and use_value_bias`. `x_`/`g_` computation is
-  untouched.
-- **`inference()` / `iteration()` / `forward()`**: pass `v` through unchanged
-  otherwise.
-- `hebbian()`'s `td_scale` parameter (from the earliest superseded design)
-  remains present and still unused — harmless dead capability, not removed,
-  not exercised.
+### 2. `neuralplayground/agents/whittington_2020.py`
 
----
+**New `__init__` parameter** `n_landmarks` (default 10) — must match the
+environment's `n_landmarks`.
 
-### 2. `neuralplayground/agents/whittington_2020_extras/whittington_2020_parameters.py`
+**New `reset()` state**: `self.held_landmark` (list, length batch_size, most
+recent landmark id per env or `None`), `self.held_landmark_history` (append-only,
+parallel to `obs_history` — records the context held *at* each historical
+step, before that step's transition updates it).
 
-Added `params["use_value_bias"] = False` as the documented default (agent
-overrides to `True` when `use_reward=True`).
+**`td`**: `TDValueHead(n_envs=batch_size, n_keys_per_env=[n_landmarks]*batch_size, ...)`
+— table size dropped from up to 144 (per-state) to `n_landmarks=10`.
 
----
+**`batch_act()`**: in the `all_allowed` branch, appends the pre-update held
+context to `held_landmark_history`, then updates `self.held_landmark[i]` only
+when the newly reached object's id is `< n_landmarks`, then runs
+`self.td.update(self.held_landmark.copy(), rewards)` — i.e. the TD key is now
+held-landmark id, not raw state id.
+
+**Re-added `_object_id(obs_entry)`** (removed in the previous round, brought
+back solely to detect "is the current object a landmark").
+
+**`_value_for_history(held_landmark_history)`**: signature changed from
+`(history)` to `(held_landmark_history)` — looks up `V[key]` directly per
+recorded held context instead of deriving a key from each step's raw
+observation.
+
+**`update()` / `collect_final_trajectory()`**: slice
+`self.held_landmark_history[-n_rollout:]` (or `-n_walk:`) alongside `history`
+and pass that slice to `_value_for_history`.
 
 ### 3. `neuralplayground/agents/td_value_head.py`
 
-Unchanged from the previous (state-keyed) design — `TDValueHead(n_envs,
-n_keys_per_env, alpha=0.1, gamma=0.9)`, one table per environment sized to
-that environment's state count, keyed by physical state id.
+No code changes — already generic over what `n_keys_per_env`/`keys` mean.
 
----
+### 4. `neuralplayground/agents/whittington_2020_extras/whittington_2020_model.py` / `whittington_2020_parameters.py`
 
-### 4. `neuralplayground/agents/whittington_2020.py`
+No changes this round — the `f_v` bias mechanism from the previous design is
+reused as-is.
 
-**`__init__`**: sets `self.pars["use_value_bias"] = self.use_reward` before
-constructing `Model` (moved `self.use_reward` assignment earlier so it's
-available at that point). No more `n_x`/`obs_dim` bumping logic — `self.pars`
-is identical between conditions except for this one flag.
+### 5. `examples/agent_examples/_tem_eval.py`
 
-**Removed**: `obs_dim` attribute, `_augment_observations()`.
+**Forward pass**: `held_indices`/`real_indices` tracked alongside the existing
+dummy-row filtering so `agent.held_landmark_history` stays aligned with the
+filtered `obs_history` slice; `v_seq` now looks up `V[held_landmark]` instead
+of `V[state_id]`.
 
-**New method `_value_for_history(history)`**: returns a list of
-`(batch_size,)` tensors (one per rollout step), each `V(s_t)` max-normalised
-per environment. Does not touch observations at all.
+**`v_table.npy`**: now built by projecting `agent.td.V[0]` (shape
+`(n_landmarks,)`) onto each landmark's unique state via
+`env.environments[0].objects`; all non-landmark states are `NaN` (they have no
+fixed value of their own — whatever context they hold is path-dependent), not
+`0`.
 
-**`update()` / `collect_final_trajectory()`**: build `v_steps =
-self._value_for_history(history)` when `use_reward`, and append `[None,
-v_steps[i]]` (the unused `td_scale` slot, then `v`) to each `model_input`
-step — instead of modifying the observation tensor or its reshape width
-(`obs_array` always reshapes to `self.pars["n_x"]` now, in both conditions).
+**`value_map.png` / `object_value_map.png`**: re-themed around landmarks —
+gray background (`cmap.set_bad`) for non-landmark (`NaN`) states so the
+`n_landmarks` coloured cells stand out; lime boxes mark all landmark states
+(not "states sharing the reward's object," which doesn't make sense once
+value is landmark-keyed); reward location marked with a cyan star on both
+plots for direct visual comparison against landmark brightness.
 
-**`batch_act()`**: unchanged — still does the state-keyed TD(0) backup
-independently of how `V` reaches TEM.
+### 6. `examples/agent_examples/whittington_2020_run.py` / `whittington_2020_loop_run.py`
 
----
+**New top-level flags**: `N_LANDMARKS=10`, `LANDMARK_BIAS_SCALE=2.0`.
 
-### 5. `examples/agent_examples/whittington_2020_run.py` / `whittington_2020_loop_run.py`
+**`discrete_env_params`** now always includes `n_landmarks`, `reward_location`,
+`landmark_bias_scale` — **unconditionally, not gated by `USE_REWARD`**. This is
+a deliberate choice: landmarks are a property of the *environment*, and both
+conditions must share the same environment for the baseline-vs-TEM-R
+comparison to isolate the value mechanism's contribution rather than
+conflating it with "landmarks are better spatial anchors than duplicated
+objects" (a real, separate effect — see the caveat below).
+`agent_params["n_landmarks"]` is also always passed (the agent only acts on it
+when `use_reward=True`).
 
-**Removed**: the `full_agent_params["n_x"] = params["n_x"] + 1` bump. `n_x`
-and `discrete_env_params["n_objects"]` are identical between conditions now —
-TEM-R is purely a runtime flag (`use_reward=True`) passed to the agent.
-
----
-
-### 6. `examples/agent_examples/_tem_eval.py`
-
-**Forward pass**: builds a separate `v_seq` (mirroring
-`agent._value_for_history`) and appends `[None, v]` to each `model_input` step
-instead of concatenating `v` onto the observation array.
-
-**Value map / object overlay** (`v_table.npy`, `value_map.png`,
-`object_value_map.png`): unchanged — these still read `agent.td.V[0]`
-directly, since the TD table itself is unaffected by how `V` reaches TEM.
-
----
+> **Methodological note carried over from the design discussion:** a
+> never-duplicated object is inherently a better localisation anchor than a
+> repeating one, *independent of whether it carries value*. Because both
+> conditions now share the landmark layout, this effect is held constant
+> between them — baseline vs. TEM-R isolates the value contribution. To
+> separately measure the landmark-layout contribution itself, compare *this*
+> baseline against the pre-landmark baseline archived in
+> `results_interpretation.md` (different environment entirely, not a clean
+> A/B — treat as a rough historical reference only).
 
 ### 7. `examples/agent_examples/run_full_experiment.py`
 
-Unchanged by this round. Orchestrates both training runs (in parallel by
-default — `--sequential` for one-at-a-time) then `tem_predictive_analysis.py`.
-See `how_to_run.md` for usage.
+Unchanged by this round.
 
 ---
 
 ## What is NOT changed
 
 - TEM's sensory pathway: `f_c`, `two_hot_table`, `x_prev2x`, `x2x_`, `W_tile`,
-  `W_repeat`, the generative cross-entropy loss over `x` — completely
-  untouched, in both conditions.
+  `W_repeat`, the generative cross-entropy loss over `x`.
 - The Hebbian update (always unmodulated, in both conditions).
 - Grid cell (g) dynamics and transition model.
-- `BatchEnvironment` and `DiscreteObjectEnvironment`.
+- `BatchEnvironment`.
 - `n_x` / `n_x_c` (identical between conditions; never bumped).
+- `Model.inf_p`'s `f_v` bias mechanism itself (reused from the previous design).
 
 ---
 
@@ -217,15 +250,15 @@ results_sim/
 ├── reward_modulated/
 │   ├── agent, agent_hyper, arena, params.dict, training_hist.dict
 │   ├── agent's tem state_dict also includes f_v.{0..4}.{weight,bias} — absent in baseline
-│   ├── td_value_table               ← pickled list of per-env V arrays (agent.td.V), one entry per state
+│   ├── td_value_table               ← pickled list of per-env V arrays (agent.td.V), shape (n_landmarks,)
 │   ├── whittington_2020_model.py
 │   └── plots/
 │       └── episode_N/
 │           ├── p_rates.npy
-│           ├── v_table.npy          ← V(s), shape (n_states,)
+│           ├── v_table.npy          ← V(landmark) projected onto states, shape (n_states,), NaN elsewhere
 │           ├── trajectory.png
-│           ├── value_map.png        ← V(s) plotted on 2D grid
-│           ├── object_value_map.png ← V(s) + object id overlay, highlights repeated-object states
+│           ├── value_map.png        ← landmark V on 2D grid, reward marked with a star
+│           ├── object_value_map.png ← + object id overlay, lime boxes = landmark states
 │           ├── place_cells_*.png
 │           └── grid_cells_*.png
 │
@@ -246,30 +279,40 @@ results_sim/
 - **Hebbian gating:** `M = λM + η · ReLU(V(xₜ)) · (p − p̂)(p + p̂)ᵀ` — high-value
   states encoded more durably into memory.
 - **Pretrain phase:** `n_pretrain_episodes=50` episodes of unmodulated
-  exploration before gating activated, to let TEM form stable structural
-  representations first.
+  exploration before gating activated.
 
 The results in `results_interpretation.md` were produced under this design and
 do not describe the current architecture's behaviour.
 
 ### 2. Object-keyed tabular value (second design)
 
-Same observation-concatenation mechanism as design 3 below, but the table was
-indexed by **object id** (`argmax` of the one-hot observation) instead of
-physical state. Two states sharing the same object were *forced* to share the
-same `V` — the opposite of what's needed to tell repeated-object states apart.
+Table indexed by **object id** instead of physical state. Two states sharing
+the same (necessarily-repeating, since there were no landmarks yet) object
+were *forced* to share the same `V` — the opposite of what's needed to tell
+repeated-object states apart.
 
 ### 3. State-keyed value concatenated onto the observation (third design)
 
-Fixed design 2's indexing problem (switched to state-keyed `V`), but still
-appended `v_norm` as a 46th dimension on `x`:
-```
-x_aug = concat(x_onehot [45], v_norm [1])   →   shape (46,)
-```
-requiring the caller to widen `pars["n_x"]` by 1 before constructing the agent.
-Investigation (see Change 2 above) found this injection point is nearly inert:
-`Model.f_c`'s argmax-based two-hot lookup and the cross-entropy loss's
-argmax-based labelling both discard the appended channel, so `V` had no real
-gradient path into the model. This motivated moving to the `f_v` place-cell
-bias in the current design, which keeps the state-keyed table but changes
-*where* it joins the model.
+Fixed design 2's indexing problem (switched to state-keyed `V`), but appended
+`v_norm` as a 46th dimension on `x`, requiring `pars["n_x"]` to be widened by 1
+before constructing the agent. Investigation found this injection point is
+nearly inert: `Model.f_c`'s argmax-based two-hot lookup and the cross-entropy
+loss's argmax-based labelling both discard the appended channel (the real
+one-hot entry always wins argmax ties against a bounded `v_norm`), so `V` had
+no real gradient path into the model. Motivated moving to the `f_v`
+place-cell bias.
+
+### 4. State-keyed value via the f_v place-cell bias (fourth design)
+
+Kept the `f_v` bias mechanism (still current), but the table was indexed by
+**physical state** (one entry per state, up to 144 per env) rather than by
+held landmark identity, and updated using the raw current state id every
+step (no "holding" — value was looked up fresh at whatever state the agent
+was literally standing on). Worked, but every one of the ~35 non-landmark
+objects' states still had *no* way to disambiguate themselves from their
+duplicates other than the table being keyed by state rather than object —
+i.e. it solved the *indexing* problem but not the underlying *sensory
+ambiguity* (the agent's observation still couldn't tell two same-object states
+apart; only the hand-fed `v` could). Motivated introducing actual
+never-duplicated landmark objects (Change 0) so disambiguation happens at the
+sensory level too, with value keyed by the resulting unique landmark identity.
