@@ -177,6 +177,14 @@ class Model(torch.nn.Module):
             M_prev: previous memory connectivity matrix
             x_prev: previous sensory experience
             g_gen: previous abstract location
+            v: optional external scalar value signal, shape (batch_size,) or
+            (batch_size, 1). TEM-R only - when not None, overwrites the
+            trailing dimension of the compressed sensory code x_c (a
+            dedicated value channel that the two-hot identity table never
+            populates - see two_hot_table generation in
+            whittington_2020_parameters.py). Written immediately after f_c's
+            argmax/lookup, so it flows through temporal filtering and
+            grid-conjunction exactly like any other sensory dimension.
 
         Returns
         -------
@@ -190,6 +198,14 @@ class Model(torch.nn.Module):
         # Compress sensory observation from one-hot to two-hot (or alternatively,
         # whatever an MLP makes of it)
         x_c = self.f_c(x)
+        # TEM-R: inject the value signal into the dedicated trailing dimension
+        # of the compressed code, right after the argmax/lookup and before
+        # anything downstream sees it. two_hot_table is built from plain
+        # Python ints (dtype Long) - cast to float first, or assigning a
+        # continuous v into a Long slice would silently truncate it.
+        if v is not None:
+            x_c = x_c.float().clone()
+            x_c[:, -1] = v.view(-1)
         # Temporally filter sensory observation by mixing it with previous experience
         x_f = self.x_prev2x(x_prev, x_c)
         # Prepare sensory experience for input to memory by normalisation and weighting
@@ -210,7 +226,7 @@ class Model(torch.nn.Module):
         # Prepare abstract location for input to memory by downsampling and weighting
         g_ = self.g2g_(g)
         # Infer grounded location from sensory experience and inferred abstract location
-        p = self.inf_p(x_, g_, v=v)
+        p = self.inf_p(x_, g_)
         # Return variables in order that they were created
         return x_f, g, p_x, p
 
@@ -549,17 +565,6 @@ class Model(torch.nn.Module):
             self.hyper["n_x"],
             hidden_dim=20 * self.hyper["n_x_c"],
         )
-        # TEM-R: per-frequency linear layers projecting an external scalar value
-        # signal v (e.g. a learned state value, not part of the sensory pathway)
-        # into a bias added to mu_p in inf_p(). Only created when use_value_bias is
-        # set, so the baseline model's parameter count/checkpoint shape is
-        # unaffected. Deliberately does not touch n_x/n_x_c/x or any of the
-        # combinatorial two-hot/W_tile machinery - see inf_p() for where it's used.
-        if self.hyper.get("use_value_bias", False):
-            self.f_v = torch.nn.ModuleList(
-                [torch.nn.Linear(1, self.hyper["n_p"][f]) for f in range(self.hyper["n_f"])]
-            )
-
     def init_iteration(self, g, x, a, M):
         """Initialise a new iteration of the TEM model.
 
@@ -957,7 +962,7 @@ class Model(torch.nn.Module):
         # previous abstract location
         return g
 
-    def inf_p(self, x_, g_, v=None):
+    def inf_p(self, x_, g_):
         """Infer grounded location from sensory experience and inferred
         abstract location for each module.
 
@@ -965,11 +970,6 @@ class Model(torch.nn.Module):
         ----------
             x_: sensory input to memory
             g_: abstract (grid cell) locations
-            v: optional external scalar value signal, shape (batch_size,) or
-            (batch_size, 1). TEM-R only (self.hyper["use_value_bias"]=True) -
-            when not None, projected per frequency module through f_v and
-            added to mu_p as a learned bias. Does not touch x_/g_ or any
-            sensory-pathway machinery.
 
         Returns
         -------
@@ -979,15 +979,11 @@ class Model(torch.nn.Module):
         # Infer grounded location from sensory experience and inferred abstract location
         # for each module
         p = []
-        if v is not None and v.dim() == 1:
-            v = v.unsqueeze(1)
         # Use the same transformation for each frequency module: leaky relu for sparsity
         for f in range(self.hyper["n_f"]):
             mu_p = self.f_p(g_[f] * x_[f])  # This is element-wise multiplication
             # Unclear from paper (typo?). Some undefined function f that takes two
             # arguments: f(f_n(x),g)
-            if v is not None and self.hyper.get("use_value_bias", False):
-                mu_p = mu_p + self.f_v[f](v)
             sigma_p = 0
             # Either sample inferred grounded location or just take mean
             if self.hyper["do_sample"]:

@@ -65,8 +65,10 @@ SQUARE_LOOP = [_DOWN] * 4 + [_RIGHT] * 3 + [_UP] * 4 + [_LEFT] * 3
 # ── Environment & agent setup (identical to whittington_2020_run.py) ──────────
 params = parameters.parameters()
 full_agent_params = params.copy()
-# TEM-R no longer widens n_x: V(s) reaches TEM through Model.inf_p's f_v bias,
-# not by appending to the observation.
+# TEM-R doesn't widen n_x (raw one-hot vocabulary): V(s) reaches TEM by being
+# written into the dedicated trailing dimension of the compressed code x_c,
+# right after Model.f_c's argmax/lookup (see whittington_2020_parameters.py
+# and Model.inference()), not by appending to the raw observation.
 
 arena_x_limits = [
     [-5, 5], [-4, 4], [-5, 5], [-6, 6],

@@ -10,7 +10,10 @@ DiscreteObjectEnvironment.generate_objects) and the same trajectory seed, so
 the environment and the path walked are identical either way.
 
 Set USE_REWARD = True for the TEM-R condition: a TD-learned value over held
-landmark identity biases place-cell inference via Model.inf_p's f_v layers.
+landmark identity is written into the dedicated trailing dimension of the
+compressed sensory code x_c by Model.inference(), right after f_c's
+argmax/lookup - it then flows through the rest of TEM's sensory pathway like
+any other observation dimension.
 Set USE_REWARD = False for the baseline condition: identical environment and
 trajectory, but no value mechanism at all (isolates the value-learning
 contribution from the landmark-layout contribution — see
@@ -34,7 +37,7 @@ from neuralplayground.experiments import Sargolini2006Data
 # Env-var overrides (TEM_USE_REWARD / TEM_TEST_MODE) let run_full_experiment.py
 # drive both conditions from one script without editing this file; manual edits
 # of the literals below still work for one-off interactive runs.
-USE_REWARD          = os.environ.get("TEM_USE_REWARD", "0") == "1"      # False = baseline, True = TEM-R (V(landmark) biases p via f_v)
+USE_REWARD          = os.environ.get("TEM_USE_REWARD", "0") == "1"      # False = baseline, True = TEM-R (V(landmark) written into x_c's value dim)
 TEST_MODE           = os.environ.get("TEM_TEST_MODE", "0") == "1"     # True = 10-episode smoke test (quick sanity check)
 TRAJECTORY_SEED     = 42          # Fixed seed — keep identical across conditions
 REWARD_LOCATION     = [3.0, 3.0]  # Reward site; inside all environment bounds
@@ -54,9 +57,12 @@ training_loop = tem_training_loop
 
 params = parameters.parameters()
 full_agent_params = params.copy()
-# TEM-R no longer widens n_x: V(landmark) reaches TEM through Model.inf_p's
-# f_v bias (set via agent_params["use_reward"] below), not by appending to
-# the observation. n_x/n_x_c stay at their baseline values in both conditions.
+# TEM-R doesn't widen n_x (raw one-hot vocabulary) at all: V(landmark) reaches
+# TEM by being written into the dedicated trailing dimension of the compressed
+# code x_c (n_x_c is 1 wider than the two-hot identity code across BOTH
+# conditions - see whittington_2020_parameters.py - so baseline and TEM-R use
+# an identical network width; only whether that dimension is ever set to a
+# nonzero value differs, via agent_params["use_reward"] below).
 
 arena_x_limits = [
     [-5, 5],

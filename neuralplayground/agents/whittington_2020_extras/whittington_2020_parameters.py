@@ -185,17 +185,21 @@ def parameters():
     params["n_g"] = [3 * g for g in params["n_g_subsampled"]]
     # Neurons for sensory observation x
     params["n_x"] = 45
-    # Neurons for compressed sensory experience x_c
-    params["n_x_c"] = 10
+    # Neurons for the identity part of the compressed sensory code (two-hot
+    # combinatorics operate over exactly this many dimensions - see
+    # two_hot_table generation below, which pads a value dimension on top of
+    # this width rather than including it in the combinatorics).
+    n_x_c_identity = 10
+    # Neurons for compressed sensory experience x_c. One dimension wider than
+    # n_x_c_identity: TEM-R uses this extra trailing dimension as a dedicated
+    # value channel, written by Model.inference() right after f_c()'s
+    # argmax/two-hot lookup (never touched by the two-hot identity code
+    # itself). Always 0 for baseline and for non-landmark observations.
+    params["n_x_c"] = n_x_c_identity + 1
     # Neurons for temporally filtered sensory experience x for each frequency
     params["n_x_f"] = [params["n_x_c"] for _ in range(params["n_f"])]
     # Neurons for hippocampal grounded location p for each frequency
     params["n_p"] = [g * x for g, x in zip(params["n_g_subsampled"], params["n_x_f"])]
-    # TEM-R: if True, Model creates per-frequency Linear(1, n_p[f]) layers (f_v) that
-    # add a learned bias to mu_p in inf_p(), driven by an external scalar value signal
-    # v passed in through the walk's 5th step element. Does not touch n_x/n_x_c/x at
-    # all. Set by the agent (Whittington2020.__init__), not meant to be hand-edited.
-    params["use_value_bias"] = False
     # Initial frequencies of each module. For ease of interpretation (higher number =
     # higher
     #   frequency) this is 1 - the frequency as James uses it
@@ -341,12 +345,15 @@ def parameters():
         )
         for f in range(params["n_f"])
     ]
-    # Table for converting one-hot to two-hot compressed representation
-    params["two_hot_table"] = [[0] * (params["n_x_c"] - 2) + [1] * 2]
+    # Table for converting one-hot to two-hot compressed representation. The
+    # combinatorics run over n_x_c_identity dimensions only (not the full
+    # params["n_x_c"]), so the trailing value dimension appended below is
+    # never selected as part of any object's identity pair.
+    params["two_hot_table"] = [[0] * (n_x_c_identity - 2) + [1] * 2]
     # We need a compressed code for each possible observation, but it's impossible to
     # have more compressed codes
-    #   than "n_x_c choose 2"
-    for i in range(1, min(int(comb(params["n_x_c"], 2)), params["n_x"])):
+    #   than "n_x_c_identity choose 2"
+    for i in range(1, min(int(comb(n_x_c_identity, 2)), params["n_x"])):
         # Copy previous code
         code = params["two_hot_table"][-1].copy()
         # Find latest occurrence of [0 1] in that code
@@ -364,8 +371,12 @@ def parameters():
             code[swap + 2 :] = code[: swap + 1 : -1]
         # And append new code to array
         params["two_hot_table"].append(code)
-    # Convert each code to column vector pytorch tensor
-    params["two_hot_table"] = [torch.tensor(code) for code in params["two_hot_table"]]
+    # Pad every identity code with a trailing 0 for the value dimension (see
+    # n_x_c comment above) - written at runtime by Model.inference(), never by
+    # this table. Convert each code to column vector pytorch tensor.
+    params["two_hot_table"] = [
+        torch.tensor(code + [0]) for code in params["two_hot_table"]
+    ]
     # Downsampling matrix to go from grid cells to compressed grid cells for indexing
     # memories by simply taking
     #   only the first n_g_subsampled grid cells

@@ -97,8 +97,10 @@ class Whittington2020(AgentCore):
             state_density: float
                 density of agent states (should be proportional to the step-size)
             use_reward: bool
-                If True, a TD-learned value biases place-cell inference via
-                Model.inf_p's f_v layers. Default False.
+                If True, a TD-learned value is written into the trailing
+                (dedicated) dimension of the compressed sensory code x_c by
+                Model.inference(), right after f_c's argmax/lookup. Default
+                False.
             reward_location: list [x, y]
                 Coordinates of the reward site. Default [3.0, 3.0].
             td_alpha: float
@@ -126,9 +128,6 @@ class Whittington2020(AgentCore):
 
         self.use_reward = mod_kwargs.get("use_reward", False)
         self.pars = copy.deepcopy(params)
-        # TEM-R: tells Model to create/use the f_v value-bias layers in inf_p().
-        # Does not change n_x/n_x_c or any sensory-pathway dimension.
-        self.pars["use_value_bias"] = self.use_reward
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.tem = model.Model(self.pars, self.device)
         self.batch_size = mod_kwargs["batch_size"]
@@ -161,13 +160,16 @@ class Whittington2020(AgentCore):
         # this is what lets a single TD(0) chain credit reward received while
         # "in a landmark's zone" back to that landmark, even far from it.
         #
-        # V is NOT appended to the observation x: Model.f_c compresses x via
-        # argmax-then-fixed-lookup (two_hot_table) and the generative loss
-        # labels x via argmax too, so a continuous channel tacked onto x is
-        # discarded by both pathways (see Useful_info/experiment_changes.md).
-        # Instead V is passed alongside x as a separate model_input element and
-        # enters through Model.inf_p's f_v bias (self.pars["use_value_bias"]
-        # set above), which has a real, gradient-carrying path into p.
+        # V is NOT appended to the raw observation x: Model.f_c compresses x via
+        # argmax-then-fixed-lookup (two_hot_table), which would discard a
+        # continuous channel tacked on before the argmax (see
+        # Useful_info/experiment_changes.md). Instead V is passed alongside x
+        # as a separate model_input element and written into the compressed
+        # code x_c's dedicated trailing dimension by Model.inference(), right
+        # after f_c's argmax/lookup completes - a dimension the two-hot
+        # identity table never populates itself (see two_hot_table generation
+        # in whittington_2020_parameters.py). From there it flows through the
+        # unmodified rest of the pipeline like any other sensory dimension.
         self.n_landmarks = mod_kwargs.get("n_landmarks", 10)
         if self.use_reward:
             from neuralplayground.agents.td_value_head import TDValueHead
@@ -353,7 +355,8 @@ class Whittington2020(AgentCore):
         return int(np.argmax(vec))
 
     def _value_for_history(self, held_landmark_history):
-        """Build the per-step, per-env value tensor fed to Model.inf_p's f_v bias.
+        """Build the per-step, per-env value tensor fed to Model.inference's
+        x_c value-channel injection.
 
         ``held_landmark_history`` is a list of length n_rollout, each element
         a list of length batch_size of held-landmark ids (or None), aligned
@@ -419,8 +422,8 @@ class Whittington2020(AgentCore):
             param_group["lr"] = self.lr
 
         # V(held landmark) is passed alongside the observation, not
-        # concatenated onto it (see Model.inf_p's f_v bias). The Hebbian
-        # update is left unmodulated.
+        # concatenated onto the raw one-hot x (see Model.inference's x_c
+        # value-channel injection). The Hebbian update is left unmodulated.
         if self.use_reward:
             held_slice = self.held_landmark_history[-self.pars["n_rollout"]:]
             v_steps = self._value_for_history(held_slice)

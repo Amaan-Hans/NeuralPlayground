@@ -67,9 +67,11 @@ def run_eval(agent, env, episode: int, eval_save_path: str):
     locations_seq = [[{"id": step[0][0], "shiny": None}] for step in history_slice]
     obs_seq = np.array([step[0][1] for step in history_slice], dtype=np.float32)
 
-    # V(held landmark) reaches TEM via Model.inf_p's f_v bias, passed as a
-    # separate model_input element (never concatenated onto the observation)
-    # — mirrors agent._value_for_history used during training.
+    # V(held landmark) reaches TEM by being written into the compressed code
+    # x_c's dedicated trailing dimension inside Model.inference() (right after
+    # f_c's argmax/lookup), passed here as a separate model_input element
+    # (never concatenated onto the raw observation) — mirrors
+    # agent._value_for_history used during training.
     v_seq = None
     if agent.use_reward and agent.td is not None:
         v_table = agent.td.V[0]
