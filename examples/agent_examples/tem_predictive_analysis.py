@@ -25,10 +25,12 @@ Usage
 """
 
 import os
+import pickle
 import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from scipy import ndimage
 from neuralplayground.comparison import GridScorer
 
 # ── Configuration ──────────────────────────────────────────────────────────────
@@ -60,6 +62,17 @@ XY_FLAT = XY.reshape(-1, 2)                           # (N_STATES, 2)  row = sta
 
 # Distance from each state to the reward location
 DIST_TO_REWARD = np.linalg.norm(XY_FLAT - REWARD_LOCATION, axis=1)  # (N_STATES,)
+
+# ── Reward-zone field enrichment configuration ─────────────────────────────────
+# Zone radius matches PROXIMAL_THRESHOLD's convention (same "how close counts as
+# near-reward" judgment call used by the existing proximal-cell-count metric).
+ZONE_RADIUS         = 2.0
+FIELD_THRESH_FRAC   = 0.5   # field = contiguous region >= this fraction of a cell's own peak
+MIN_FIELD_SIZE      = 2     # states; discards single-pixel noise "fields"
+SELECTIVITY_THRESH  = 2.5   # peak/mean ratio a cell's rate map must clear to count as place-like
+MIN_AMPLITUDE       = 0.02  # peak - min must exceed this; excludes near-flat/dead cells
+N_SHUFFLES          = 2000
+SHUFFLE_SEED        = 0
 # ──────────────────────────────────────────────────────────────────────────────
 
 
@@ -394,6 +407,291 @@ def plot_proximal_cell_count():
     print(f"Saved: {fname}")
 
 
+# ── Analysis 6: Reward-zone place-field enrichment (pooled across all envs) ───
+#
+# Unlike the peak-distance metrics above (single argmax peak per cell, no
+# null model, env 0 only), this maps onto Hollup et al. 2001's actual result:
+# a density-based enrichment ratio (fraction of *fields*, not cells, near
+# the goal vs. the fraction of arena area the "near goal" zone occupies)
+# tested against a shuffle null, pooled across every environment that has
+# multi-env rate maps (see _tem_eval.py::_save_multienv_rates / env_meta.pkl).
+
+def _state_xy(room_w, room_d, state_density=1):
+    """Grid-cell centre xy for a room of given size.
+
+    Must match DiscreteObjectEnvironment / Whittington2020._compute_reward_state_ids's
+    own coordinate grid construction (meshgrid(x_array, y_array), flattened
+    row-major) exactly, or state indices won't line up with p_rates rows.
+    """
+    res_w = int(state_density * room_w)
+    res_d = int(state_density * room_d)
+    x = np.linspace(-room_w / 2 + 0.5 / state_density, room_w / 2 - 0.5 / state_density, res_w)
+    y = np.linspace(-room_d / 2 + 0.5 / state_density, room_d / 2 - 0.5 / state_density, res_d)
+    xy = np.stack(np.meshgrid(x, y), axis=-1)  # (res_d, res_w, 2)
+    return xy.reshape(-1, 2)
+
+
+def _multienv_episode_dirs(plots_dir):
+    """Like _episode_dirs, but only checkpoints that have multi-env data."""
+    return [
+        (ep, ep_path) for ep, ep_path in _episode_dirs(plots_dir)
+        if os.path.exists(os.path.join(ep_path, "p_rates_multienv.npz"))
+    ]
+
+
+def _load_multienv(ep_path):
+    """Load p_rates_multienv.npz + env_meta.pkl -> (rates_dict, meta)."""
+    rates_path = os.path.join(ep_path, "p_rates_multienv.npz")
+    meta_path = os.path.join(ep_path, "env_meta.pkl")
+    if not os.path.exists(rates_path) or not os.path.exists(meta_path):
+        return None, None
+    rates = dict(np.load(rates_path))
+    with open(meta_path, "rb") as fh:
+        meta = pickle.load(fh)
+    return rates, meta
+
+
+def detect_fields(rate_map_2d, thresh_frac=FIELD_THRESH_FRAC, min_size=MIN_FIELD_SIZE):
+    """Connected-component place-field detection on one cell's 2D rate map.
+
+    A field is a contiguous (4-connected) region at or above thresh_frac of
+    that cell's own peak rate, at least min_size states. A cell can have 0,
+    1, or multiple fields - unlike the argmax-only peak used elsewhere in
+    this file.
+
+    Returns list of flattened (row-major) peak-state indices, one per field.
+    """
+    peak = rate_map_2d.max()
+    if peak <= 0:
+        return []
+    mask = rate_map_2d >= thresh_frac * peak
+    labeled, n_labels = ndimage.label(mask)  # default structure = 4-connectivity
+    flat_rates = rate_map_2d.reshape(-1)
+    flat_labels = labeled.reshape(-1)
+    fields = []
+    for label_id in range(1, n_labels + 1):
+        region = np.where(flat_labels == label_id)[0]
+        if region.size < min_size:
+            continue
+        fields.append(int(region[np.argmax(flat_rates[region])]))
+    return fields
+
+
+def is_place_like(rate_map_1d, selectivity_thresh=SELECTIVITY_THRESH, min_amplitude=MIN_AMPLITUDE):
+    """Selectivity filter: exclude diffuse/near-flat cells before field
+    counting, so noise units don't dilute the enrichment ratio.
+    """
+    amplitude = rate_map_1d.max() - rate_map_1d.min()
+    if amplitude < min_amplitude:
+        return False
+    mean = rate_map_1d.mean()
+    if mean <= 1e-8:
+        return True  # all activity concentrated at zero baseline elsewhere: treat as selective
+    return (rate_map_1d.max() / mean) >= selectivity_thresh
+
+
+def _env_field_distances(p_rates_env, room_w, room_d, state_density, reward_location,
+                          thresh_frac=FIELD_THRESH_FRAC, min_size=MIN_FIELD_SIZE,
+                          selectivity_thresh=SELECTIVITY_THRESH):
+    """Detect place-like cells' field distances-from-reward for one environment.
+
+    Returns
+    -------
+    field_dists : list of float, distance-from-reward (grid units) of every
+        detected field's peak state, pooled across this env's place-like cells.
+    dist_to_reward : (n_states,) distance-from-reward for every state in this
+        env's own geometry - used by the shuffle null.
+    """
+    xy = _state_xy(room_w, room_d, state_density)
+    dist_to_reward = np.linalg.norm(xy - np.array(reward_location), axis=1)
+
+    field_dists = []
+    for c in range(p_rates_env.shape[1]):
+        col = p_rates_env[:, c]
+        if not is_place_like(col, selectivity_thresh):
+            continue
+        cell_2d = col.reshape(room_d, room_w)
+        for peak_state in detect_fields(cell_2d, thresh_frac, min_size):
+            field_dists.append(float(dist_to_reward[peak_state]))
+    return field_dists, dist_to_reward
+
+
+def _condition_multienv_stats(plots_dir, zone_radius=ZONE_RADIUS,
+                               thresh_frac=FIELD_THRESH_FRAC, min_size=MIN_FIELD_SIZE,
+                               selectivity_thresh=SELECTIVITY_THRESH):
+    """Pool field distances-from-reward across every env, for every checkpoint
+    that has multi-env data, for one condition.
+    """
+    results = {}
+    for ep, ep_path in _multienv_episode_dirs(plots_dir):
+        rates, meta = _load_multienv(ep_path)
+        if rates is None:
+            continue
+        n_envs = len(rates)
+        all_field_dists = []
+        env_dist_arrays = []
+        n_fields_per_env = []
+        for j in range(n_envs):
+            p_env = rates[f"env{j}"]
+            field_dists, dist_to_reward = _env_field_distances(
+                p_env,
+                meta["room_widths"][j], meta["room_depths"][j], meta["state_densities"][j],
+                meta["reward_location"], thresh_frac, min_size, selectivity_thresh,
+            )
+            all_field_dists.extend(field_dists)
+            env_dist_arrays.append(dist_to_reward)
+            n_fields_per_env.append(len(field_dists))
+        zone_area = sum(int(np.sum(d <= zone_radius)) for d in env_dist_arrays)
+        total_area = sum(d.shape[0] for d in env_dist_arrays)
+        results[ep] = {
+            "field_dists": all_field_dists,
+            "env_dist_arrays": env_dist_arrays,
+            "n_fields_per_env": n_fields_per_env,
+            "zone_area": zone_area,
+            "total_area": total_area,
+        }
+    return results
+
+
+def _enrichment_ratio(field_dists, zone_area, total_area, zone_radius=ZONE_RADIUS):
+    """Hollup-style density enrichment ratio:
+        (fields in zone / total fields) / (zone area / total area)
+    ratio ~ 1 -> fields uniformly spread; > 1 -> over-represented near reward.
+    """
+    n_total = len(field_dists)
+    if n_total == 0 or zone_area == 0 or total_area == 0:
+        return None
+    expected_frac = zone_area / total_area
+    if expected_frac == 0:
+        return None
+    n_in_zone = sum(1 for d in field_dists if d <= zone_radius)
+    return (n_in_zone / n_total) / expected_frac, n_in_zone, n_total
+
+
+def _shuffle_null(env_dist_arrays, n_fields_per_env, zone_radius=ZONE_RADIUS,
+                   n_shuffles=N_SHUFFLES, rng=None):
+    """Null distribution of the pooled enrichment ratio.
+
+    Resamples each env's *observed* field count uniformly among that env's
+    own valid states (stratified per env, since room sizes/areas differ) -
+    "same amount of data, random locations". Compares the real ratio against
+    this to ask whether the observed concentration near reward exceeds chance.
+    """
+    if rng is None:
+        rng = np.random.default_rng(SHUFFLE_SEED)
+    zone_area = sum(int(np.sum(d <= zone_radius)) for d in env_dist_arrays)
+    total_area = sum(d.shape[0] for d in env_dist_arrays)
+    n_total = sum(n_fields_per_env)
+    if n_total == 0 or total_area == 0:
+        return np.array([])
+    expected_frac = zone_area / total_area
+    if expected_frac == 0:
+        return np.array([])
+
+    null_ratios = np.empty(n_shuffles)
+    for s in range(n_shuffles):
+        n_in_zone = 0
+        for dist_arr, n_fields in zip(env_dist_arrays, n_fields_per_env):
+            if n_fields == 0:
+                continue
+            sampled = rng.integers(0, dist_arr.shape[0], size=n_fields)
+            n_in_zone += int(np.sum(dist_arr[sampled] <= zone_radius))
+        null_ratios[s] = (n_in_zone / n_total) / expected_frac
+    return null_ratios
+
+
+def plot_reward_zone_enrichment(zone_radius=ZONE_RADIUS, n_shuffles=N_SHUFFLES,
+                                 thresh_frac=FIELD_THRESH_FRAC, min_size=MIN_FIELD_SIZE,
+                                 selectivity_thresh=SELECTIVITY_THRESH):
+    """Reward-zone place-field enrichment ratio, pooled across all envs with
+    multi-env rate maps, with a shuffle-based null. Requires either a full
+    retrain under the patched _tem_eval.py, or tem_probe_eval_multienv.py run
+    against an already-trained agent.
+    """
+    rng = np.random.default_rng(SHUFFLE_SEED)
+    colours = {"baseline": "steelblue", "reward_modulated": "darkorange"}
+    conditions = {"baseline": BASELINE_DIR, "reward_modulated": REWARD_DIR}
+
+    summary = {}
+    for label, plots_dir in conditions.items():
+        stats = _condition_multienv_stats(plots_dir, zone_radius, thresh_frac,
+                                           min_size, selectivity_thresh)
+        if not stats:
+            print(f"No multi-env data found for {label} ({plots_dir}) — "
+                  f"run tem_probe_eval_multienv.py or a full retrain with the "
+                  f"patched _tem_eval.py first.")
+            continue
+        for ep, s in stats.items():
+            result = _enrichment_ratio(s["field_dists"], s["zone_area"], s["total_area"], zone_radius)
+            if result is None:
+                print(f"[{label} ep {ep}] not enough fields/area for an enrichment ratio — skipping.")
+                continue
+            ratio, n_in_zone, n_total = result
+            null = _shuffle_null(s["env_dist_arrays"], s["n_fields_per_env"],
+                                  zone_radius, n_shuffles, rng)
+            p_value = float(np.mean(null >= ratio)) if null.size else float("nan")
+            summary[(label, ep)] = {
+                "ratio": ratio, "n_in_zone": n_in_zone, "n_total": n_total,
+                "null": null, "p_value": p_value, "field_dists": s["field_dists"],
+            }
+            lo, hi = (np.percentile(null, [5, 95]) if null.size else (float("nan"), float("nan")))
+            print(f"[{label} ep {ep}] enrichment ratio = {ratio:.2f} "
+                  f"({n_in_zone}/{n_total} fields in zone), "
+                  f"null 5-95pct = [{lo:.2f}, {hi:.2f}], p = {p_value:.4f}")
+
+    if not summary:
+        return summary
+
+    # ── Bar plot: observed ratio vs shuffle null, per condition/checkpoint ────
+    keys = sorted(summary.keys(), key=lambda k: (k[1], k[0]))
+    fig, ax = plt.subplots(figsize=(max(6, 1.2 * len(keys)), 5))
+    for i, key in enumerate(keys):
+        label, ep = key
+        s = summary[key]
+        ax.bar(i, s["ratio"], color=colours.get(label, "gray"), alpha=0.85, width=0.6)
+        if s["null"].size:
+            lo, hi = np.percentile(s["null"], [5, 95])
+            ax.plot([i, i], [lo, hi], color="black", linewidth=1.5)
+            ax.plot([i - 0.15, i + 0.15], [lo, lo], color="black", linewidth=1.5)
+            ax.plot([i - 0.15, i + 0.15], [hi, hi], color="black", linewidth=1.5)
+        ax.text(i, s["ratio"] + 0.05, f"p={s['p_value']:.3f}", ha="center", fontsize=8)
+    ax.axhline(1.0, color="gray", linestyle="--", linewidth=0.8, label="chance (ratio = 1)")
+    ax.set_xticks(range(len(keys)))
+    ax.set_xticklabels([f"{label}\nep {ep}" for label, ep in keys], fontsize=8)
+    ax.set_ylabel(f"Field density enrichment ratio\n(zone radius = {zone_radius} units)")
+    ax.set_title("Reward-zone place-field enrichment (pooled across all envs)\n"
+                 "black whiskers = shuffle null 5th-95th percentile")
+    ax.legend(fontsize=8)
+    fig.tight_layout()
+    fname = os.path.join(OUT_DIR, "reward_zone_enrichment.png")
+    fig.savefig(fname, dpi=150)
+    plt.close(fig)
+    print(f"Saved: {fname}")
+
+    # ── Pooled field-distance histogram vs zone radius ────────────────────────
+    fig, axs = plt.subplots(1, len(keys), figsize=(5 * len(keys), 4), sharey=False)
+    if len(keys) == 1:
+        axs = [axs]
+    for ax, key in zip(axs, keys):
+        label, ep = key
+        s = summary[key]
+        ax.hist(s["field_dists"], bins=20, color=colours.get(label, "gray"),
+                edgecolor="white", alpha=0.85)
+        ax.axvline(zone_radius, color="red", linestyle="--", label=f"zone radius ({zone_radius})")
+        ax.set_xlabel("Field distance from reward (grid units)")
+        ax.set_ylabel("Field count")
+        ax.set_title(f"{label} — ep {ep}\nratio={s['ratio']:.2f}, p={s['p_value']:.3f}")
+        ax.legend(fontsize=7)
+    fig.suptitle("Pooled place-field distance from reward (all envs)", fontsize=11)
+    fig.tight_layout()
+    fname = os.path.join(OUT_DIR, "reward_zone_field_distance_hist.png")
+    fig.savefig(fname, dpi=150)
+    plt.close(fig)
+    print(f"Saved: {fname}")
+
+    return summary
+
+
 # ── Run all analyses ───────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
@@ -403,4 +701,5 @@ if __name__ == "__main__":
     plot_peak_distance()
     plot_grid_scores()
     plot_proximal_cell_count()
+    plot_reward_zone_enrichment()
     print(f"\nAll plots saved to: {OUT_DIR}")
