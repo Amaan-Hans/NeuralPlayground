@@ -39,7 +39,7 @@ from neuralplayground.experiments import Sargolini2006Data
 # of the literals below still work for one-off interactive runs.
 USE_REWARD          = os.environ.get("TEM_USE_REWARD", "0") == "1"      # False = baseline, True = TEM-R (V(landmark) written into x_c's value dim)
 TEST_MODE           = os.environ.get("TEM_TEST_MODE", "0") == "1"     # True = 10-episode smoke test (quick sanity check)
-TRAJECTORY_SEED     = 42          # Fixed seed — keep identical across conditions
+TRAJECTORY_SEED     = 123         # Fixed seed — keep identical across conditions
 REWARD_LOCATION     = [3.0, 3.0]  # Reward site; inside all environment bounds
 TD_ALPHA            = 0.1         # Tabular value-table learning rate
 TD_GAMMA            = 0.95         # TD discount factor

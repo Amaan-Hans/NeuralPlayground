@@ -1,21 +1,33 @@
-# Experiment Changes: TEM-R — Held-Landmark TD Value via Place-Cell Bias
+# Experiment Changes: TEM-R — Held-Landmark TD Value via Post-Argmax Observation Injection
 
 ## Overview
 
 Two conditions are compared: **baseline TEM** (no value mechanism) and
-**TEM-R** (value-biased TEM). Both share the *same* environment layout —
+**TEM-R** (value-augmented TEM). Both share the *same* environment layout —
 including the landmark scheme described below — and the same trajectory seed,
 so the environment and the path walked are identical either way; only the
 agent's use of a value mechanism differs. Each condition runs for **5000
 episodes**, evaluated every 1000 episodes with plots and raw data saved for
 post-hoc analysis.
 
-> This document supersedes four earlier designs: a neural value head that
+> This document supersedes five earlier designs: a neural value head that
 > gated the Hebbian update; a tabular value head keyed by object identity;
 > a tabular value keyed by state but concatenated onto the observation `x`;
-> and a tabular value keyed by state, biasing place cells via `f_v` but with
-> one table entry per physical grid state. All four have been fully removed —
-> see "Superseded designs" at the bottom.
+> a tabular value keyed by state, biasing place cells via `f_v` with one
+> table entry per physical grid state; and a tabular value keyed by held
+> landmark identity, still biasing place cells via `f_v`. All five have been
+> fully removed — see "Superseded designs" at the bottom.
+>
+> **This is design #6 (current, as of 2026-08-11).** Value no longer biases
+> place-cell activity as a separate additive term at all — the `f_v`
+> mechanism itself is gone. Instead, `V(held landmark)` is written directly
+> into a dedicated trailing dimension of the compressed sensory code `x_c`,
+> immediately after `Model.f_c`'s argmax/two-hot lookup (hence "post-argmax
+> injection") — so the value signal flows through the exact same temporal-
+> filtering and grid-conjunction machinery as any other sensory dimension,
+> rather than being injected downstream via a hand-designed bias term. See
+> "Change 2" below for the mechanism, and superseded design #5 for why the
+> `f_v` bias approach was replaced rather than just kept.
 
 ### Baseline TEM (no value mechanism)
 - Hebbian update (uniform, unmodulated): `M = λM + η(p − p̂)(p + p̂)ᵀ`
@@ -84,26 +96,52 @@ from earlier designs except for what `n_keys_per_env`/`keys` represent
 (landmark id, sized `N_LANDMARKS`, instead of physical state, sized
 `n_states`).
 
-**Change 2 — V(landmark) biases place-cell inference, not the observation**
+**Change 2 — V(landmark) is written into a dedicated dimension of the
+compressed sensory code, right after the argmax/two-hot lookup**
 
-Unchanged from the previous design — still **not** appended to `x` (see
-"Superseded designs" #3 below for why that doesn't work). `V` is passed as a
-separate scalar alongside `x` and enters through an additive bias on the
-inferred place-cell code:
+`V` is **not** appended to the raw one-hot observation `x` (see "Superseded
+designs" #3 for why that doesn't work) and is **no longer** injected as a
+separate additive bias on place cells either (superseded design #5 — the
+`f_v` mechanism is fully removed). Instead, the compressed sensory code
+`x_c` — the two-hot vector `Model.f_c()` produces via `argmax(x)` + a fixed
+lookup table — is widened by exactly one dimension, reserved purely as a
+value channel:
+
 ```python
-# Model.inf_p(), per frequency module f:
-mu_p = self.f_p(g_[f] * x_[f])
-mu_p = mu_p + self.f_v[f](v)     # only when use_value_bias=True
+# Model.inference(), immediately after x_c = self.f_c(x):
+if v is not None:
+    x_c = x_c.float().clone()
+    x_c[:, -1] = v.view(-1)          # dedicated 11th dim, never used for identity
+x_f = self.x_prev2x(x_prev, x_c)     # flows through temporal filtering...
+...                                   # ...and grid-conjunction (inf_p) like any other dim
 ```
-`v` is `V[held_landmark]` max-normalised to `[0,1]` per environment. This part
-of the mechanism (the `f_v` bias itself) is unchanged from the previous
-design — only *what* `v` represents (held landmark value vs. raw per-state
-value) and *how often the underlying table changes* (only at landmark
-transitions vs. every step) changed in this round.
+
+`v` is `V[held_landmark]` max-normalised to `[0,1]` per environment — same
+normalisation as before, just a different destination. Crucially, the
+two-hot **identity** combinatorics (which pair of positions encodes which
+object) still only ever run over the first `n_x_c_identity=10` dimensions —
+the 11th is padded with a permanent `0` in the lookup table itself, so it can
+never collide with or overwrite any object's own identity code. `n_x_c` is
+therefore **11** in both conditions (was 10) — baseline's value dimension is
+simply always `0` (baseline never supplies a `v`), so baseline and TEM-R use
+an *architecturally identical* network width; only whether a nonzero `v` is
+ever written in differs. `n_x` (raw one-hot vocabulary, 45 objects) and the
+environment/landmark layout are completely unaffected — this lives entirely
+in the compressed-code stage, not the identity-coding stage.
+
+Two alternative mechanisms were considered and rejected before landing here:
+splitting each landmark into 2 vocabulary codes (low/high value bin) was
+rejected as unnecessarily complex for a coarse binary signal (would also
+require reallocating the regular-object budget, 35→25, to make room); reusing
+the same two bit-positions a to-be-deleted regular object's own two-hot code
+would have used was rejected because two-hot codes routinely share one of
+their two positions with *other* objects' codes, risking silent corruption of
+some other landmark's identity.
 
 **What is explicitly NOT done:** the Hebbian update is left completely
-unmodulated in both conditions; `x`/`n_x`/`n_x_c` are identical between
-conditions; the hold has no decay (see callout above).
+unmodulated in both conditions; `n_x` is identical between conditions; the
+hold has no decay (see callout above); there is no bias term anywhere in the
+model — `f_v` and `use_value_bias` have been deleted, not just disabled.
 
 ---
 
@@ -155,28 +193,85 @@ No code changes — already generic over what `n_keys_per_env`/`keys` mean.
 
 ### 4. `neuralplayground/agents/whittington_2020_extras/whittington_2020_model.py` / `whittington_2020_parameters.py`
 
-No changes this round — the `f_v` bias mechanism from the previous design is
-reused as-is.
+**Design 6 changes (current):**
+
+- `whittington_2020_parameters.py`: `n_x_c` raised from 10 to 11. The
+  `two_hot_table` generation loop still runs its combinatorics over a fixed
+  identity width of 10 (a local `n_x_c_identity`, not `params["n_x_c"]`), then
+  pads every row with one trailing `0` — guaranteeing the 11th dimension is
+  never assigned to any object's identity code. `params["use_value_bias"]`
+  deleted (nothing left to gate).
+- `whittington_2020_model.py`: `init_trainable()`'s `f_v = ModuleList(...)`
+  block deleted entirely — no bias layers exist anywhere in the model.
+  `inf_p()` no longer takes a `v` parameter and no longer has a bias-add
+  branch. `inference()` gained the actual injection, immediately after
+  `x_c = self.f_c(x)`: `if v is not None: x_c = x_c.float().clone();
+  x_c[:, -1] = v.view(-1)`. The `.float()` cast is load-bearing — the table is
+  built from plain Python ints (`Long` dtype), so assigning a continuous `v`
+  into an unconverted slice silently truncates it to an integer (caught during
+  implementation by a dedicated verification script, not by the smoke test).
+  `iteration()`/`forward()`'s existing `v`/`td_scale` step-tuple plumbing is
+  unchanged — only where `v` is *consumed* moved.
+
+Superseded design #5's `f_v` bias mechanism (`Linear(1, n_p[f])` per
+frequency module, added to `mu_p` in `inf_p()`) is fully removed, not just
+disabled.
 
 ### 5. `examples/agent_examples/_tem_eval.py`
 
-**Forward pass**: `held_indices`/`real_indices` tracked alongside the existing
-dummy-row filtering so `agent.held_landmark_history` stays aligned with the
-filtered `obs_history` slice; `v_seq` now looks up `V[held_landmark]` instead
-of `V[state_id]`.
+**From design 5 (unchanged by design 6):** `held_indices`/`real_indices`
+tracked alongside the existing dummy-row filtering so
+`agent.held_landmark_history` stays aligned with the filtered `obs_history`
+slice; `v_seq` looks up `V[held_landmark]` instead of `V[state_id]`.
+`v_table.npy` built by projecting `agent.td.V[0]` onto each landmark's unique
+state; `value_map.png`/`object_value_map.png` themed around landmarks.
 
-**`v_table.npy`**: now built by projecting `agent.td.V[0]` (shape
-`(n_landmarks,)`) onto each landmark's unique state via
-`env.environments[0].objects`; all non-landmark states are `NaN` (they have no
-fixed value of their own — whatever context they hold is path-dependent), not
-`0`.
+**From design 6:** no functional changes to the per-checkpoint `run_eval()`
+path — `v` is still computed and threaded through exactly as before, just
+consumed differently inside the model.
 
-**`value_map.png` / `object_value_map.png`**: re-themed around landmarks —
-gray background (`cmap.set_bad`) for non-landmark (`NaN`) states so the
-`n_landmarks` coloured cells stand out; lime boxes mark all landmark states
-(not "states sharing the reward's object," which doesn't make sense once
-value is landmark-keyed); reward location marked with a cyan star on both
-plots for direct visual comparison against landmark brightness.
+**Multi-env probe support (added alongside design 6, used only by
+`tem_probe_eval_multienv.py`, never by the normal per-checkpoint training
+eval):** `compute_multienv_rates()` — small-window (`EVAL_STEPS=500`) rate
+computation across every environment in the batch, not just env 0, used by
+the thin `run_eval_multienv()` save-to-`plots/`-wrapper. `run_multienv_probe()`
+— the actual long-probe driver: runs a frozen-weight random walk *and*
+accumulates per-state, per-frequency running sums directly, one
+`chunk_episodes`-rollout chunk at a time, discarding each chunk's raw
+observation history immediately (`agent.obs_history` etc. reset to `[]`
+after each chunk) so memory stays flat regardless of total episode count —
+critical because an early two-phase design (walk fully, *then* reprocess the
+whole history) OOM'd on a 12GB GPU at only ~1200 steps once `M` (the Hebbian
+memory tensor, `(16, 440, 440)` per step) is retained for every step of a
+long window. Writes periodic snapshots to a caller-supplied `save_dir` via
+`_save_probe_snapshot()` (overwrites the same file each time — visible
+progress + resumability, not one file per checkpoint).
+
+### 5b. `examples/agent_examples/tem_probe_eval_multienv.py` (new script, design 6)
+
+Drives `run_multienv_probe()` against both conditions' already-trained
+agents: `N_EPISODES=5000`, `CHUNK_EPISODES=10`, `WARMUP_STEPS=500` (skip the
+first 500 accumulated steps — recurrent path-integration state needs a few
+steps to settle after starting from `prev_iter=None`). Saves
+`probe_<condition>_rates.npz` + `probe_<condition>_meta.pkl` into
+**`results_sim/predictive_analysis/probe/`** — a dedicated subfolder,
+deliberately *not* `results_sim/<condition>/plots/`, because that folder is
+scanned by several other analyses (population activity, peak distance, grid
+scores, proximal cell count) that should only ever see real training
+checkpoints; a frozen-weight probe of the *final* trained model has no
+relationship to any specific training episode. Calls
+`tem_predictive_analysis.plot_reward_zone_enrichment()` automatically at the
+end. See "Multi-env probe" section below for the full rationale and the
+two-seed replication finding.
+
+### 5c. `examples/agent_examples/tem_predictive_analysis.py`
+
+`plot_reward_zone_enrichment()` rewritten to read one summary rate-map per
+condition from `_load_probe_data()` (which reads `PROBE_DIR =
+predictive_analysis/probe/`), instead of scanning multiple
+`plots/episode_N/p_rates_multienv.npz` checkpoints — produces one bar per
+condition, not a sweep. `_condition_multienv_stats`/`_multienv_episode_dirs`/
+`_load_multienv` (the old episode-scanning versions) removed.
 
 ### 6. `examples/agent_examples/whittington_2020_run.py` / `whittington_2020_loop_run.py`
 
@@ -210,13 +305,16 @@ Unchanged by this round.
 
 ## What is NOT changed
 
-- TEM's sensory pathway: `f_c`, `two_hot_table`, `x_prev2x`, `x2x_`, `W_tile`,
-  `W_repeat`, the generative cross-entropy loss over `x`.
+- TEM's sensory pathway structure: `f_c`'s argmax/lookup mechanism, the
+  two-hot identity combinatorics, `x_prev2x`, `x2x_`, `W_tile`, `W_repeat`,
+  the generative cross-entropy loss over `x`. (`n_x_c`'s *width* did change,
+  10→11 — see Change 2 — but the identity-coding logic itself didn't.)
 - The Hebbian update (always unmodulated, in both conditions).
 - Grid cell (g) dynamics and transition model.
-- `BatchEnvironment`.
-- `n_x` / `n_x_c` (identical between conditions; never bumped).
-- `Model.inf_p`'s `f_v` bias mechanism itself (reused from the previous design).
+- `BatchEnvironment`, landmark placement, `n_x` (45, both conditions).
+- Any bias term on place cells — `Model.inf_p`'s `f_v` mechanism is deleted,
+  not reused; place cells are now purely `f_p(g_ * x_)` in both conditions,
+  identical to vanilla TEM.
 
 ---
 
@@ -249,12 +347,13 @@ results_sim/
 │
 ├── reward_modulated/
 │   ├── agent, agent_hyper, arena, params.dict, training_hist.dict
-│   ├── agent's tem state_dict also includes f_v.{0..4}.{weight,bias} — absent in baseline
+│   ├── agent's tem state_dict: SAME shape as baseline's — no f_v.* keys exist
+│   │     in either condition anymore (design 6 removed the bias layers)
 │   ├── td_value_table               ← pickled list of per-env V arrays (agent.td.V), shape (n_landmarks,)
 │   ├── whittington_2020_model.py
 │   └── plots/
-│       └── episode_N/
-│           ├── p_rates.npy
+│       └── episode_N/                (N = 1000, 2000, 3000, 4000, 5000 only — real training checkpoints)
+│           ├── p_rates.npy          (n_states, 440) — 440 = sum(n_p) = [110,110,88,66,66], n_x_c=11 in both conditions
 │           ├── v_table.npy          ← V(landmark) projected onto states, shape (n_states,), NaN elsewhere
 │           ├── trajectory.png
 │           ├── value_map.png        ← landmark V on 2D grid, reward marked with a star
@@ -263,8 +362,68 @@ results_sim/
 │           └── grid_cells_*.png
 │
 └── predictive_analysis/
-    └── (written by tem_predictive_analysis.py)
+    ├── population_activity_*.png, value_correlation.png, peak_distance_*.png,
+    │   grid_scores.png, proximal_cell_count.png   ← all from TRAINING checkpoints above
+    ├── reward_zone_enrichment.png, reward_zone_field_distance_hist.png  ← from probe/ below, NOT training
+    └── probe/                        ← written by tem_probe_eval_multienv.py, NOT training
+        ├── probe_baseline_rates.npz / _meta.pkl
+        └── probe_reward_modulated_rates.npz / _meta.pkl
 ```
+
+**Important distinction:** everything under `predictive_analysis/` except
+the two `reward_zone_*` files and the `probe/` subfolder is derived from
+`plots/episode_{1000..5000}/` — i.e. tracks how *env 0's* representation
+changed *during* the 5000-episode training run. The `reward_zone_*` files and
+`probe/` come from a completely separate, later, frozen-weight process (see
+"Multi-env probe" section below) — pooled across all 16 environments, with no
+training-episode axis at all.
+
+---
+
+## Multi-env probe: why it exists, and a two-seed replication finding
+
+`env 0` alone (100 states) yields too few detected place fields for a
+statistically meaningful "are fields clustered near reward" test. The probe
+(`tem_probe_eval_multienv.py`) runs a long frozen-weight random-policy walk
+across all 16 environments simultaneously against the *already-trained*
+agent, pools field counts across all of them, and computes a shuffle-null
+enrichment ratio (see `plot_reward_zone_enrichment()` in
+`tem_predictive_analysis.py`). Current settings: `N_EPISODES=5000`,
+`CHUNK_EPISODES=10` (walk and rate-accumulation are interleaved — each chunk
+of 10 rollouts is walked, forward-passed, and its raw history discarded
+before the next chunk starts, so memory stays flat), `WARMUP_STEPS=500`.
+
+**Two-seed result (2026-08-12/13), same trained architecture, only
+`TRAJECTORY_SEED` changed:**
+
+| | seed=42 | seed=123 |
+|---|---|---|
+| baseline | ratio=1.09, **p=0.0030** | ratio=1.03, p=0.2005 (chance) |
+| reward_modulated | ratio=1.13, **p<0.0001** | ratio=1.04, p=0.1700 (chance) |
+
+The effect is **not seed-stable** — under seed=123 both conditions collapse
+to chance. Notably, **baseline moved almost as much as reward_modulated
+did**, which points away from "value learning specifically became less
+effective this seed" and toward something shared between both conditions:
+landmark placement is itself stochastic per seed (reward-distance-biased
+sampling, not a fixed layout), so a "less favourable" seed for landmark
+geometry can lower enrichment in *both* conditions independent of any
+learning. This is consistent with the existing methodological note above
+(a never-duplicated, reward-biased-placement object is inherently a better
+localisation/enrichment anchor regardless of whether it carries value).
+
+**Open methodological issue this surfaced:** one `TRAJECTORY_SEED` value
+currently drives *three* separate random-number streams at once — landmark
+placement (`random.seed`, inside environment generation), the training
+action sequence (`np.random.seed`, during the 5000-episode training walk),
+and the probe's own evaluation walk (separately seeded in
+`tem_probe_eval_multienv.py`, currently set to the same value as training).
+Changing "the seed" conflates all three. A recommended follow-up before
+drawing conclusions from any single-seed comparison: decouple these and hold
+one fixed at a time (e.g. fix the probe's evaluation walk across every
+trained model, to separate "what got learned" from "which states we
+happened to sample when measuring it") — and, per `Research_proposal.md`,
+move toward averaging over multiple seeds rather than trusting any one.
 
 ---
 
@@ -304,11 +463,11 @@ place-cell bias.
 
 ### 4. State-keyed value via the f_v place-cell bias (fourth design)
 
-Kept the `f_v` bias mechanism (still current), but the table was indexed by
-**physical state** (one entry per state, up to 144 per env) rather than by
-held landmark identity, and updated using the raw current state id every
-step (no "holding" — value was looked up fresh at whatever state the agent
-was literally standing on). Worked, but every one of the ~35 non-landmark
+Introduced the `f_v` bias mechanism, but the table was indexed by **physical
+state** (one entry per state, up to 144 per env) rather than by held landmark
+identity, and updated using the raw current state id every step (no
+"holding" — value was looked up fresh at whatever state the agent was
+literally standing on). Worked, but every one of the ~35 non-landmark
 objects' states still had *no* way to disambiguate themselves from their
 duplicates other than the table being keyed by state rather than object —
 i.e. it solved the *indexing* problem but not the underlying *sensory
@@ -316,3 +475,20 @@ ambiguity* (the agent's observation still couldn't tell two same-object states
 apart; only the hand-fed `v` could). Motivated introducing actual
 never-duplicated landmark objects (Change 0) so disambiguation happens at the
 sensory level too, with value keyed by the resulting unique landmark identity.
+
+### 5. Held-landmark value via the f_v place-cell bias (fifth design — this
+document's "current" design until 2026-08-11)
+
+Kept design 4's `f_v` bias mechanism unchanged, but switched the table's key
+from raw physical state to **held landmark identity** (Change 1 above,
+unchanged since) — this is the design most of this document's "Change 0" and
+"Change 1" sections describe, since landmarks and held-context tracking
+carried forward unchanged into design 6. What changed in design 6 was
+*only* Change 2: replacing the `f_v` additive bias on place cells with
+writing `v` into a dedicated dimension of the compressed sensory code,
+immediately after `f_c`'s argmax/lookup. Motivation for the replacement:
+value entering through the same channel as any other sensory information
+("baked into observation") rather than through a hand-designed bias term
+disconnected from TEM's own sensory pathway — see Change 2 above for the
+full mechanism and the two alternatives considered and rejected along the
+way.

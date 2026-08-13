@@ -18,6 +18,12 @@ Produces three comparisons across episode checkpoints:
    reward condition cells develop peaks further from the reward site (backward
    shift) while baseline cells stay random.
 
+(Also produces grid_scores.png, proximal_cell_count.png, and
+reward_zone_enrichment.png / reward_zone_field_distance_hist.png - the last
+two need tem_probe_eval_multienv.py to have been run first, since they read
+its saved probe_<condition>_rates.npz/_meta.pkl from this same output
+directory, not from the per-checkpoint training plots.)
+
 Usage
 -----
     cd examples/agent_examples
@@ -41,6 +47,7 @@ RESULTS_ROOT  = os.path.join(os.getcwd(), _results_folder)
 BASELINE_DIR  = os.path.join(RESULTS_ROOT, "baseline",         "plots")
 REWARD_DIR    = os.path.join(RESULTS_ROOT, "reward_modulated", "plots")
 OUT_DIR       = os.path.join(RESULTS_ROOT, "predictive_analysis")
+PROBE_DIR     = os.path.join(OUT_DIR, "probe")
 
 # Checkpoints after this episode are treated as "loop phase" for proximal cell count.
 # Set to 0 in TEST_MODE so all checkpoints are included.
@@ -413,8 +420,16 @@ def plot_proximal_cell_count():
 # null model, env 0 only), this maps onto Hollup et al. 2001's actual result:
 # a density-based enrichment ratio (fraction of *fields*, not cells, near
 # the goal vs. the fraction of arena area the "near goal" zone occupies)
-# tested against a shuffle null, pooled across every environment that has
-# multi-env rate maps (see _tem_eval.py::_save_multienv_rates / env_meta.pkl).
+# tested against a shuffle null, pooled across every environment.
+#
+# Data comes from tem_probe_eval_multienv.py's single long frozen-weight
+# probe walk (results_sim/predictive_analysis/probe_<condition>_rates.npz +
+# probe_<condition>_meta.pkl) - ONE summary rate-map per environment per
+# condition, not a series of training-time checkpoints. That probe is a
+# random walk against the *final* trained model and has no relationship to
+# any specific training episode, so its data intentionally lives outside
+# results_sim/<condition>/plots/ (which _episode_dirs() above scans for the
+# training-progression analyses) - see that script's docstring.
 
 def _state_xy(room_w, room_d, state_density=1):
     """Grid-cell centre xy for a room of given size.
@@ -431,18 +446,14 @@ def _state_xy(room_w, room_d, state_density=1):
     return xy.reshape(-1, 2)
 
 
-def _multienv_episode_dirs(plots_dir):
-    """Like _episode_dirs, but only checkpoints that have multi-env data."""
-    return [
-        (ep, ep_path) for ep, ep_path in _episode_dirs(plots_dir)
-        if os.path.exists(os.path.join(ep_path, "p_rates_multienv.npz"))
-    ]
-
-
-def _load_multienv(ep_path):
-    """Load p_rates_multienv.npz + env_meta.pkl -> (rates_dict, meta)."""
-    rates_path = os.path.join(ep_path, "p_rates_multienv.npz")
-    meta_path = os.path.join(ep_path, "env_meta.pkl")
+def _load_probe_data(condition):
+    """Load one condition's probe_<condition>_rates.npz + _meta.pkl from
+    results_sim/predictive_analysis/probe/ (written by
+    tem_probe_eval_multienv.py). Returns (rates, meta) or (None, None) if the
+    probe hasn't been run yet.
+    """
+    rates_path = os.path.join(PROBE_DIR, f"probe_{condition}_rates.npz")
+    meta_path = os.path.join(PROBE_DIR, f"probe_{condition}_meta.pkl")
     if not os.path.exists(rates_path) or not os.path.exists(meta_path):
         return None, None
     rates = dict(np.load(rates_path))
@@ -516,41 +527,39 @@ def _env_field_distances(p_rates_env, room_w, room_d, state_density, reward_loca
     return field_dists, dist_to_reward
 
 
-def _condition_multienv_stats(plots_dir, zone_radius=ZONE_RADIUS,
-                               thresh_frac=FIELD_THRESH_FRAC, min_size=MIN_FIELD_SIZE,
-                               selectivity_thresh=SELECTIVITY_THRESH):
-    """Pool field distances-from-reward across every env, for every checkpoint
-    that has multi-env data, for one condition.
+def _condition_probe_stats(condition, zone_radius=ZONE_RADIUS,
+                            thresh_frac=FIELD_THRESH_FRAC, min_size=MIN_FIELD_SIZE,
+                            selectivity_thresh=SELECTIVITY_THRESH):
+    """Pool field distances-from-reward across every env, from one condition's
+    single probe_<condition>_rates.npz (see _load_probe_data). Returns None if
+    the probe hasn't been run for this condition yet.
     """
-    results = {}
-    for ep, ep_path in _multienv_episode_dirs(plots_dir):
-        rates, meta = _load_multienv(ep_path)
-        if rates is None:
-            continue
-        n_envs = len(rates)
-        all_field_dists = []
-        env_dist_arrays = []
-        n_fields_per_env = []
-        for j in range(n_envs):
-            p_env = rates[f"env{j}"]
-            field_dists, dist_to_reward = _env_field_distances(
-                p_env,
-                meta["room_widths"][j], meta["room_depths"][j], meta["state_densities"][j],
-                meta["reward_location"], thresh_frac, min_size, selectivity_thresh,
-            )
-            all_field_dists.extend(field_dists)
-            env_dist_arrays.append(dist_to_reward)
-            n_fields_per_env.append(len(field_dists))
-        zone_area = sum(int(np.sum(d <= zone_radius)) for d in env_dist_arrays)
-        total_area = sum(d.shape[0] for d in env_dist_arrays)
-        results[ep] = {
-            "field_dists": all_field_dists,
-            "env_dist_arrays": env_dist_arrays,
-            "n_fields_per_env": n_fields_per_env,
-            "zone_area": zone_area,
-            "total_area": total_area,
-        }
-    return results
+    rates, meta = _load_probe_data(condition)
+    if rates is None:
+        return None
+    n_envs = len(rates)
+    all_field_dists = []
+    env_dist_arrays = []
+    n_fields_per_env = []
+    for j in range(n_envs):
+        p_env = rates[f"env{j}"]
+        field_dists, dist_to_reward = _env_field_distances(
+            p_env,
+            meta["room_widths"][j], meta["room_depths"][j], meta["state_densities"][j],
+            meta["reward_location"], thresh_frac, min_size, selectivity_thresh,
+        )
+        all_field_dists.extend(field_dists)
+        env_dist_arrays.append(dist_to_reward)
+        n_fields_per_env.append(len(field_dists))
+    zone_area = sum(int(np.sum(d <= zone_radius)) for d in env_dist_arrays)
+    total_area = sum(d.shape[0] for d in env_dist_arrays)
+    return {
+        "field_dists": all_field_dists,
+        "env_dist_arrays": env_dist_arrays,
+        "n_fields_per_env": n_fields_per_env,
+        "zone_area": zone_area,
+        "total_area": total_area,
+    }
 
 
 def _enrichment_ratio(field_dists, zone_area, total_area, zone_radius=ZONE_RADIUS):
@@ -603,51 +612,46 @@ def _shuffle_null(env_dist_arrays, n_fields_per_env, zone_radius=ZONE_RADIUS,
 def plot_reward_zone_enrichment(zone_radius=ZONE_RADIUS, n_shuffles=N_SHUFFLES,
                                  thresh_frac=FIELD_THRESH_FRAC, min_size=MIN_FIELD_SIZE,
                                  selectivity_thresh=SELECTIVITY_THRESH):
-    """Reward-zone place-field enrichment ratio, pooled across all envs with
-    multi-env rate maps, with a shuffle-based null. Requires either a full
-    retrain under the patched _tem_eval.py, or tem_probe_eval_multienv.py run
-    against an already-trained agent.
+    """Reward-zone place-field enrichment ratio, pooled across all envs, one
+    number per condition - with a shuffle-based null. Requires
+    tem_probe_eval_multienv.py to have been run against both conditions'
+    trained agents first (writes results_sim/predictive_analysis/
+    probe_<condition>_rates.npz + _meta.pkl).
     """
     rng = np.random.default_rng(SHUFFLE_SEED)
     colours = {"baseline": "steelblue", "reward_modulated": "darkorange"}
-    conditions = {"baseline": BASELINE_DIR, "reward_modulated": REWARD_DIR}
 
     summary = {}
-    for label, plots_dir in conditions.items():
-        stats = _condition_multienv_stats(plots_dir, zone_radius, thresh_frac,
-                                           min_size, selectivity_thresh)
-        if not stats:
-            print(f"No multi-env data found for {label} ({plots_dir}) — "
-                  f"run tem_probe_eval_multienv.py or a full retrain with the "
-                  f"patched _tem_eval.py first.")
+    for label in ("baseline", "reward_modulated"):
+        s = _condition_probe_stats(label, zone_radius, thresh_frac, min_size, selectivity_thresh)
+        if s is None:
+            print(f"No probe data found for {label} — run tem_probe_eval_multienv.py first.")
             continue
-        for ep, s in stats.items():
-            result = _enrichment_ratio(s["field_dists"], s["zone_area"], s["total_area"], zone_radius)
-            if result is None:
-                print(f"[{label} ep {ep}] not enough fields/area for an enrichment ratio — skipping.")
-                continue
-            ratio, n_in_zone, n_total = result
-            null = _shuffle_null(s["env_dist_arrays"], s["n_fields_per_env"],
-                                  zone_radius, n_shuffles, rng)
-            p_value = float(np.mean(null >= ratio)) if null.size else float("nan")
-            summary[(label, ep)] = {
-                "ratio": ratio, "n_in_zone": n_in_zone, "n_total": n_total,
-                "null": null, "p_value": p_value, "field_dists": s["field_dists"],
-            }
-            lo, hi = (np.percentile(null, [5, 95]) if null.size else (float("nan"), float("nan")))
-            print(f"[{label} ep {ep}] enrichment ratio = {ratio:.2f} "
-                  f"({n_in_zone}/{n_total} fields in zone), "
-                  f"null 5-95pct = [{lo:.2f}, {hi:.2f}], p = {p_value:.4f}")
+        result = _enrichment_ratio(s["field_dists"], s["zone_area"], s["total_area"], zone_radius)
+        if result is None:
+            print(f"[{label}] not enough fields/area for an enrichment ratio — skipping.")
+            continue
+        ratio, n_in_zone, n_total = result
+        null = _shuffle_null(s["env_dist_arrays"], s["n_fields_per_env"],
+                              zone_radius, n_shuffles, rng)
+        p_value = float(np.mean(null >= ratio)) if null.size else float("nan")
+        summary[label] = {
+            "ratio": ratio, "n_in_zone": n_in_zone, "n_total": n_total,
+            "null": null, "p_value": p_value, "field_dists": s["field_dists"],
+        }
+        lo, hi = (np.percentile(null, [5, 95]) if null.size else (float("nan"), float("nan")))
+        print(f"[{label}] enrichment ratio = {ratio:.2f} "
+              f"({n_in_zone}/{n_total} fields in zone), "
+              f"null 5-95pct = [{lo:.2f}, {hi:.2f}], p = {p_value:.4f}")
 
     if not summary:
         return summary
 
-    # ── Bar plot: observed ratio vs shuffle null, per condition/checkpoint ────
-    keys = sorted(summary.keys(), key=lambda k: (k[1], k[0]))
-    fig, ax = plt.subplots(figsize=(max(6, 1.2 * len(keys)), 5))
-    for i, key in enumerate(keys):
-        label, ep = key
-        s = summary[key]
+    # ── Bar plot: observed ratio vs shuffle null, one bar per condition ───────
+    keys = [k for k in ("baseline", "reward_modulated") if k in summary]
+    fig, ax = plt.subplots(figsize=(5, 5))
+    for i, label in enumerate(keys):
+        s = summary[label]
         ax.bar(i, s["ratio"], color=colours.get(label, "gray"), alpha=0.85, width=0.6)
         if s["null"].size:
             lo, hi = np.percentile(s["null"], [5, 95])
@@ -657,7 +661,7 @@ def plot_reward_zone_enrichment(zone_radius=ZONE_RADIUS, n_shuffles=N_SHUFFLES,
         ax.text(i, s["ratio"] + 0.05, f"p={s['p_value']:.3f}", ha="center", fontsize=8)
     ax.axhline(1.0, color="gray", linestyle="--", linewidth=0.8, label="chance (ratio = 1)")
     ax.set_xticks(range(len(keys)))
-    ax.set_xticklabels([f"{label}\nep {ep}" for label, ep in keys], fontsize=8)
+    ax.set_xticklabels(keys, fontsize=9)
     ax.set_ylabel(f"Field density enrichment ratio\n(zone radius = {zone_radius} units)")
     ax.set_title("Reward-zone place-field enrichment (pooled across all envs)\n"
                  "black whiskers = shuffle null 5th-95th percentile")
@@ -672,15 +676,14 @@ def plot_reward_zone_enrichment(zone_radius=ZONE_RADIUS, n_shuffles=N_SHUFFLES,
     fig, axs = plt.subplots(1, len(keys), figsize=(5 * len(keys), 4), sharey=False)
     if len(keys) == 1:
         axs = [axs]
-    for ax, key in zip(axs, keys):
-        label, ep = key
-        s = summary[key]
+    for ax, label in zip(axs, keys):
+        s = summary[label]
         ax.hist(s["field_dists"], bins=20, color=colours.get(label, "gray"),
                 edgecolor="white", alpha=0.85)
         ax.axvline(zone_radius, color="red", linestyle="--", label=f"zone radius ({zone_radius})")
         ax.set_xlabel("Field distance from reward (grid units)")
         ax.set_ylabel("Field count")
-        ax.set_title(f"{label} — ep {ep}\nratio={s['ratio']:.2f}, p={s['p_value']:.3f}")
+        ax.set_title(f"{label}\nratio={s['ratio']:.2f}, p={s['p_value']:.3f}")
         ax.legend(fontsize=7)
     fig.suptitle("Pooled place-field distance from reward (all envs)", fontsize=11)
     fig.tight_layout()

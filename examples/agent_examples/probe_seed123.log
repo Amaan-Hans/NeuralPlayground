@@ -1,0 +1,92 @@
+﻿
+============================================================
+Multi-env probing: baseline
+============================================================
+  TEM weights loaded (166 tensors)
+TEM using device: cuda
+  Random-policy walk: 5000 episodes across all 16 envs, chunk=10 episodes, saving to C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\predictive_analysis\probe...
+python.exe : C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\..\..\neuralplay
+ground\agents\whittington_2020_extras\whittington_2020_model.py:1553: UserWarning: To copy construct from a tensor, it 
+is recommended to use sourceTensor.detach().clone() or sourceTensor.detach().clone().requires_grad_(True), rather than 
+torch.tensor(sourceTensor).
+At line:1 char:398
++ ... _examples"; & "C:\Users\hansl\miniconda3\envs\tem_env\python.exe" -u  ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (C:\Users\hansl\...(sourceTensor).:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  M_new = M_new * torch.tensor(self.hyper["p_update_mask"], device=M_new.device)
+  [baseline] ep 200/5000 (4000/100000 steps, 73s elapsed, ~1747s remaining)
+  [baseline] ep 400/5000 (8000/100000 steps, 145s elapsed, ~1673s remaining)
+  [baseline] ep 600/5000 (12000/100000 steps, 217s elapsed, ~1592s remaining)
+  [baseline] ep 800/5000 (16000/100000 steps, 291s elapsed, ~1530s remaining)
+  [baseline] ep 1000/5000 (20000/100000 steps, 364s elapsed, ~1454s remaining)
+  [baseline] ep 1200/5000 (24000/100000 steps, 436s elapsed, ~1381s remaining)
+  [baseline] ep 1400/5000 (28000/100000 steps, 510s elapsed, ~1312s remaining)
+  [baseline] ep 1600/5000 (32000/100000 steps, 588s elapsed, ~1249s remaining)
+  [baseline] ep 1800/5000 (36000/100000 steps, 664s elapsed, ~1180s remaining)
+  [baseline] ep 2000/5000 (40000/100000 steps, 738s elapsed, ~1107s remaining)
+  [baseline] ep 2200/5000 (44000/100000 steps, 810s elapsed, ~1031s remaining)
+  [baseline] ep 2400/5000 (48000/100000 steps, 883s elapsed, ~957s remaining)
+  [baseline] ep 2600/5000 (52000/100000 steps, 956s elapsed, ~882s remaining)
+  [baseline] ep 2800/5000 (56000/100000 steps, 1029s elapsed, ~808s remaining)
+  [baseline] ep 3000/5000 (60000/100000 steps, 1098s elapsed, ~732s remaining)
+  [baseline] ep 3200/5000 (64000/100000 steps, 1165s elapsed, ~655s remaining)
+  [baseline] ep 3400/5000 (68000/100000 steps, 1232s elapsed, ~580s remaining)
+  [baseline] ep 3600/5000 (72000/100000 steps, 1300s elapsed, ~506s remaining)
+  [baseline] ep 3800/5000 (76000/100000 steps, 1368s elapsed, ~432s remaining)
+  [baseline] ep 4000/5000 (80000/100000 steps, 1433s elapsed, ~358s remaining)
+  [baseline] ep 4200/5000 (84000/100000 steps, 1501s elapsed, ~286s remaining)
+  [baseline] ep 4400/5000 (88000/100000 steps, 1570s elapsed, ~214s remaining)
+  [baseline] ep 4600/5000 (92000/100000 steps, 1645s elapsed, ~143s remaining)
+  [baseline] ep 4800/5000 (96000/100000 steps, 1720s elapsed, ~72s remaining)
+  [baseline] ep 5000/5000 (100000/100000 steps, 1798s elapsed, ~0s remaining)
+  Saved: C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\predictive_analysis\probe\probe_baseline_rates.npz
+  Saved: C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\predictive_analysis\probe\probe_baseline_meta.pkl
+
+============================================================
+Multi-env probing: reward_modulated
+============================================================
+  TEM weights loaded (166 tensors)
+TEM using device: cuda
+  Random-policy walk: 5000 episodes across all 16 envs, chunk=10 episodes, saving to C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\predictive_analysis\probe...
+C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\..\..\neuralplayground\agents
+\whittington_2020_extras\whittington_2020_model.py:1553: UserWarning: To copy construct from a tensor, it is 
+recommended to use sourceTensor.detach().clone() or sourceTensor.detach().clone().requires_grad_(True), rather than 
+torch.tensor(sourceTensor).
+  M_new = M_new * torch.tensor(self.hyper["p_update_mask"], device=M_new.device)
+  [reward_modulated] ep 200/5000 (4000/100000 steps, 73s elapsed, ~1742s remaining)
+  [reward_modulated] ep 400/5000 (8000/100000 steps, 148s elapsed, ~1708s remaining)
+  [reward_modulated] ep 600/5000 (12000/100000 steps, 222s elapsed, ~1628s remaining)
+  [reward_modulated] ep 800/5000 (16000/100000 steps, 297s elapsed, ~1561s remaining)
+  [reward_modulated] ep 1000/5000 (20000/100000 steps, 370s elapsed, ~1480s remaining)
+  [reward_modulated] ep 1200/5000 (24000/100000 steps, 445s elapsed, ~1409s remaining)
+  [reward_modulated] ep 1400/5000 (28000/100000 steps, 519s elapsed, ~1335s remaining)
+  [reward_modulated] ep 1600/5000 (32000/100000 steps, 595s elapsed, ~1265s remaining)
+  [reward_modulated] ep 1800/5000 (36000/100000 steps, 670s elapsed, ~1191s remaining)
+  [reward_modulated] ep 2000/5000 (40000/100000 steps, 748s elapsed, ~1122s remaining)
+  [reward_modulated] ep 2200/5000 (44000/100000 steps, 830s elapsed, ~1056s remaining)
+  [reward_modulated] ep 2400/5000 (48000/100000 steps, 908s elapsed, ~983s remaining)
+  [reward_modulated] ep 2600/5000 (52000/100000 steps, 1003s elapsed, ~925s remaining)
+  [reward_modulated] ep 2800/5000 (56000/100000 steps, 1083s elapsed, ~851s remaining)
+  [reward_modulated] ep 3000/5000 (60000/100000 steps, 1166s elapsed, ~777s remaining)
+  [reward_modulated] ep 3200/5000 (64000/100000 steps, 1251s elapsed, ~704s remaining)
+  [reward_modulated] ep 3400/5000 (68000/100000 steps, 1331s elapsed, ~626s remaining)
+  [reward_modulated] ep 3600/5000 (72000/100000 steps, 1409s elapsed, ~548s remaining)
+  [reward_modulated] ep 3800/5000 (76000/100000 steps, 1488s elapsed, ~470s remaining)
+  [reward_modulated] ep 4000/5000 (80000/100000 steps, 1567s elapsed, ~392s remaining)
+  [reward_modulated] ep 4200/5000 (84000/100000 steps, 1641s elapsed, ~313s remaining)
+  [reward_modulated] ep 4400/5000 (88000/100000 steps, 1714s elapsed, ~234s remaining)
+  [reward_modulated] ep 4600/5000 (92000/100000 steps, 1789s elapsed, ~156s remaining)
+  [reward_modulated] ep 4800/5000 (96000/100000 steps, 1866s elapsed, ~78s remaining)
+  [reward_modulated] ep 5000/5000 (100000/100000 steps, 1941s elapsed, ~0s remaining)
+  Saved: C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\predictive_analysis\probe\probe_reward_modulated_rates.npz
+  Saved: C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\predictive_analysis\probe\probe_reward_modulated_meta.pkl
+
+Running reward-zone field enrichment analysis...
+[baseline] enrichment ratio = 1.03 (801/7186 fields in zone), null 5-95pct = [0.95, 1.06], p = 0.2005
+[reward_modulated] enrichment ratio = 1.04 (685/6103 fields in zone), null 5-95pct = [0.94, 1.07], p = 0.1700
+Saved: C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\predictive_analysis\reward_zone_enrichment.png
+Saved: C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\predictive_analysis\reward_zone_field_distance_hist.png
+
+All done. Results in: C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\predictive_analysis

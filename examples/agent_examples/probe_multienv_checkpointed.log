@@ -1,0 +1,254 @@
+﻿
+============================================================
+Multi-env probing: baseline
+============================================================
+  TEM weights loaded (166 tensors)
+TEM using device: cuda
+  Random-policy walk: 30000 steps across all 16 envs, checkpointing every 1000 steps...
+  [eval-multienv ep 21000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\baseline\plots\episode_21000
+    checkpoint at 1000 steps -> episode_21000/
+  [eval-multienv ep 22000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\baseline\plots\episode_22000
+    checkpoint at 2000 steps -> episode_22000/
+    ep   100  steps   2001
+  [eval-multienv ep 23000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\baseline\plots\episode_23000
+    checkpoint at 3000 steps -> episode_23000/
+  [eval-multienv ep 24000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\baseline\plots\episode_24000
+    checkpoint at 4000 steps -> episode_24000/
+    ep   200  steps   4001
+  [eval-multienv ep 25000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\baseline\plots\episode_25000
+    checkpoint at 5000 steps -> episode_25000/
+  [eval-multienv ep 26000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\baseline\plots\episode_26000
+    checkpoint at 6000 steps -> episode_26000/
+    ep   300  steps   6001
+  [eval-multienv ep 27000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\baseline\plots\episode_27000
+    checkpoint at 7000 steps -> episode_27000/
+  [eval-multienv ep 28000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\baseline\plots\episode_28000
+    checkpoint at 8000 steps -> episode_28000/
+    ep   400  steps   8001
+  [eval-multienv ep 29000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\baseline\plots\episode_29000
+    checkpoint at 9000 steps -> episode_29000/
+  [eval-multienv ep 30000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\baseline\plots\episode_30000
+    checkpoint at 10000 steps -> episode_30000/
+    ep   500  steps  10001
+  [eval-multienv ep 31000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\baseline\plots\episode_31000
+    checkpoint at 11000 steps -> episode_31000/
+  [eval-multienv ep 32000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\baseline\plots\episode_32000
+    checkpoint at 12000 steps -> episode_32000/
+    ep   600  steps  12001
+  [eval-multienv ep 33000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\baseline\plots\episode_33000
+    checkpoint at 13000 steps -> episode_33000/
+  [eval-multienv ep 34000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\baseline\plots\episode_34000
+    checkpoint at 14000 steps -> episode_34000/
+    ep   700  steps  14001
+  [eval-multienv ep 35000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\baseline\plots\episode_35000
+    checkpoint at 15000 steps -> episode_35000/
+  [eval-multienv ep 36000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\baseline\plots\episode_36000
+    checkpoint at 16000 steps -> episode_36000/
+    ep   800  steps  16001
+  [eval-multienv ep 37000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\baseline\plots\episode_37000
+    checkpoint at 17000 steps -> episode_37000/
+  [eval-multienv ep 38000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\baseline\plots\episode_38000
+    checkpoint at 18000 steps -> episode_38000/
+    ep   900  steps  18001
+  [eval-multienv ep 39000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\baseline\plots\episode_39000
+    checkpoint at 19000 steps -> episode_39000/
+  [eval-multienv ep 40000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\baseline\plots\episode_40000
+    checkpoint at 20000 steps -> episode_40000/
+    ep  1000  steps  20001
+  [eval-multienv ep 41000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\baseline\plots\episode_41000
+    checkpoint at 21000 steps -> episode_41000/
+  [eval-multienv ep 42000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\baseline\plots\episode_42000
+    checkpoint at 22000 steps -> episode_42000/
+    ep  1100  steps  22001
+  [eval-multienv ep 43000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\baseline\plots\episode_43000
+    checkpoint at 23000 steps -> episode_43000/
+  [eval-multienv ep 44000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\baseline\plots\episode_44000
+    checkpoint at 24000 steps -> episode_44000/
+    ep  1200  steps  24001
+  [eval-multienv ep 45000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\baseline\plots\episode_45000
+    checkpoint at 25000 steps -> episode_45000/
+  [eval-multienv ep 46000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\baseline\plots\episode_46000
+    checkpoint at 26000 steps -> episode_46000/
+    ep  1300  steps  26001
+  [eval-multienv ep 47000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\baseline\plots\episode_47000
+    checkpoint at 27000 steps -> episode_47000/
+  [eval-multienv ep 48000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\baseline\plots\episode_48000
+    checkpoint at 28000 steps -> episode_48000/
+    ep  1400  steps  28001
+  [eval-multienv ep 49000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\baseline\plots\episode_49000
+    checkpoint at 29000 steps -> episode_49000/
+  [eval-multienv ep 50000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\baseline\plots\episode_50000
+    checkpoint at 30000 steps -> episode_50000/
+  Collected 30000 steps across 1499 episodes.
+  Running final env-0 eval -> episode_50000/
+  [eval ep 50000] plots saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\baseline\plots\episode_50000
+  Done: C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\baseline/plots/episode_21000/ through episode_50000/
+
+============================================================
+Multi-env probing: reward_modulated
+============================================================
+  TEM weights loaded (166 tensors)
+TEM using device: cuda
+  Random-policy walk: 30000 steps across all 16 envs, checkpointing every 1000 steps...
+  [eval-multienv ep 21000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\reward_modulated\plots\episode_21000
+    checkpoint at 1000 steps -> episode_21000/
+  [eval-multienv ep 22000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\reward_modulated\plots\episode_22000
+    checkpoint at 2000 steps -> episode_22000/
+    ep   100  steps   2001
+  [eval-multienv ep 23000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\reward_modulated\plots\episode_23000
+    checkpoint at 3000 steps -> episode_23000/
+  [eval-multienv ep 24000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\reward_modulated\plots\episode_24000
+    checkpoint at 4000 steps -> episode_24000/
+    ep   200  steps   4001
+  [eval-multienv ep 25000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\reward_modulated\plots\episode_25000
+    checkpoint at 5000 steps -> episode_25000/
+  [eval-multienv ep 26000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\reward_modulated\plots\episode_26000
+    checkpoint at 6000 steps -> episode_26000/
+    ep   300  steps   6001
+  [eval-multienv ep 27000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\reward_modulated\plots\episode_27000
+    checkpoint at 7000 steps -> episode_27000/
+  [eval-multienv ep 28000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\reward_modulated\plots\episode_28000
+    checkpoint at 8000 steps -> episode_28000/
+    ep   400  steps   8001
+  [eval-multienv ep 29000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\reward_modulated\plots\episode_29000
+    checkpoint at 9000 steps -> episode_29000/
+  [eval-multienv ep 30000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\reward_modulated\plots\episode_30000
+    checkpoint at 10000 steps -> episode_30000/
+    ep   500  steps  10001
+  [eval-multienv ep 31000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\reward_modulated\plots\episode_31000
+    checkpoint at 11000 steps -> episode_31000/
+  [eval-multienv ep 32000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\reward_modulated\plots\episode_32000
+    checkpoint at 12000 steps -> episode_32000/
+    ep   600  steps  12001
+  [eval-multienv ep 33000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\reward_modulated\plots\episode_33000
+    checkpoint at 13000 steps -> episode_33000/
+  [eval-multienv ep 34000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\reward_modulated\plots\episode_34000
+    checkpoint at 14000 steps -> episode_34000/
+    ep   700  steps  14001
+  [eval-multienv ep 35000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\reward_modulated\plots\episode_35000
+    checkpoint at 15000 steps -> episode_35000/
+  [eval-multienv ep 36000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\reward_modulated\plots\episode_36000
+    checkpoint at 16000 steps -> episode_36000/
+    ep   800  steps  16001
+  [eval-multienv ep 37000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\reward_modulated\plots\episode_37000
+    checkpoint at 17000 steps -> episode_37000/
+  [eval-multienv ep 38000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\reward_modulated\plots\episode_38000
+    checkpoint at 18000 steps -> episode_38000/
+    ep   900  steps  18001
+  [eval-multienv ep 39000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\reward_modulated\plots\episode_39000
+    checkpoint at 19000 steps -> episode_39000/
+  [eval-multienv ep 40000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\reward_modulated\plots\episode_40000
+    checkpoint at 20000 steps -> episode_40000/
+    ep  1000  steps  20001
+  [eval-multienv ep 41000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\reward_modulated\plots\episode_41000
+    checkpoint at 21000 steps -> episode_41000/
+  [eval-multienv ep 42000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\reward_modulated\plots\episode_42000
+    checkpoint at 22000 steps -> episode_42000/
+    ep  1100  steps  22001
+  [eval-multienv ep 43000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\reward_modulated\plots\episode_43000
+    checkpoint at 23000 steps -> episode_43000/
+  [eval-multienv ep 44000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\reward_modulated\plots\episode_44000
+    checkpoint at 24000 steps -> episode_44000/
+    ep  1200  steps  24001
+  [eval-multienv ep 45000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\reward_modulated\plots\episode_45000
+    checkpoint at 25000 steps -> episode_45000/
+  [eval-multienv ep 46000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\reward_modulated\plots\episode_46000
+    checkpoint at 26000 steps -> episode_46000/
+    ep  1300  steps  26001
+  [eval-multienv ep 47000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\reward_modulated\plots\episode_47000
+    checkpoint at 27000 steps -> episode_47000/
+  [eval-multienv ep 48000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\reward_modulated\plots\episode_48000
+    checkpoint at 28000 steps -> episode_48000/
+    ep  1400  steps  28001
+  [eval-multienv ep 49000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\reward_modulated\plots\episode_49000
+    checkpoint at 29000 steps -> episode_49000/
+  [eval-multienv ep 50000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\reward_modulated\plots\episode_50000
+    checkpoint at 30000 steps -> episode_50000/
+  Collected 30000 steps across 1499 episodes.
+  Running final env-0 eval -> episode_50000/
+  [eval ep 50000] plots saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\reward_modulated\plots\episode_50000
+  Done: C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\reward_modulated/plots/episode_21000/ through episode_50000/
+
+Running reward-zone field enrichment analysis...
+[baseline ep 21000] enrichment ratio = 1.06 (259/2270 fields in zone), null 5-95pct = [0.92, 1.12], p = 0.2655
+[baseline ep 22000] enrichment ratio = 0.95 (218/2120 fields in zone), null 5-95pct = [0.93, 1.13], p = 0.8935
+[baseline ep 23000] enrichment ratio = 1.20 (275/2118 fields in zone), null 5-95pct = [0.92, 1.13], p = 0.0020
+[baseline ep 24000] enrichment ratio = 1.28 (291/2109 fields in zone), null 5-95pct = [0.93, 1.14], p = 0.0005
+[baseline ep 25000] enrichment ratio = 1.05 (251/2226 fields in zone), null 5-95pct = [0.92, 1.12], p = 0.3515
+[baseline ep 26000] enrichment ratio = 1.32 (324/2277 fields in zone), null 5-95pct = [0.92, 1.11], p = 0.0000
+[baseline ep 27000] enrichment ratio = 1.23 (281/2115 fields in zone), null 5-95pct = [0.94, 1.14], p = 0.0030
+[baseline ep 28000] enrichment ratio = 0.88 (209/2195 fields in zone), null 5-95pct = [0.93, 1.13], p = 0.9940
+[baseline ep 29000] enrichment ratio = 1.14 (267/2170 fields in zone), null 5-95pct = [0.93, 1.12], p = 0.0315
+[baseline ep 30000] enrichment ratio = 1.20 (276/2128 fields in zone), null 5-95pct = [0.93, 1.14], p = 0.0060
+[baseline ep 31000] enrichment ratio = 1.24 (307/2294 fields in zone), null 5-95pct = [0.93, 1.12], p = 0.0000
+[baseline ep 32000] enrichment ratio = 1.14 (276/2247 fields in zone), null 5-95pct = [0.93, 1.13], p = 0.0385
+[baseline ep 33000] enrichment ratio = 1.21 (300/2300 fields in zone), null 5-95pct = [0.92, 1.12], p = 0.0010
+[baseline ep 34000] enrichment ratio = 1.12 (264/2185 fields in zone), null 5-95pct = [0.93, 1.13], p = 0.0670
+[baseline ep 35000] enrichment ratio = 0.96 (232/2236 fields in zone), null 5-95pct = [0.92, 1.12], p = 0.8295
+[baseline ep 36000] enrichment ratio = 1.12 (272/2245 fields in zone), null 5-95pct = [0.92, 1.12], p = 0.0545
+[baseline ep 37000] enrichment ratio = 1.04 (239/2127 fields in zone), null 5-95pct = [0.92, 1.13], p = 0.4025
+[baseline ep 38000] enrichment ratio = 1.29 (303/2170 fields in zone), null 5-95pct = [0.92, 1.13], p = 0.0000
+[baseline ep 39000] enrichment ratio = 1.11 (255/2121 fields in zone), null 5-95pct = [0.94, 1.15], p = 0.1190
+[baseline ep 40000] enrichment ratio = 1.08 (244/2090 fields in zone), null 5-95pct = [0.92, 1.12], p = 0.1770
+[baseline ep 41000] enrichment ratio = 1.23 (284/2147 fields in zone), null 5-95pct = [0.92, 1.12], p = 0.0000
+[baseline ep 42000] enrichment ratio = 1.15 (285/2298 fields in zone), null 5-95pct = [0.92, 1.12], p = 0.0215
+[baseline ep 43000] enrichment ratio = 1.31 (300/2119 fields in zone), null 5-95pct = [0.92, 1.12], p = 0.0000
+[baseline ep 44000] enrichment ratio = 1.15 (254/2041 fields in zone), null 5-95pct = [0.93, 1.14], p = 0.0315
+[baseline ep 45000] enrichment ratio = 1.00 (237/2200 fields in zone), null 5-95pct = [0.92, 1.13], p = 0.6695
+[baseline ep 46000] enrichment ratio = 1.07 (248/2155 fields in zone), null 5-95pct = [0.93, 1.13], p = 0.2825
+[baseline ep 47000] enrichment ratio = 1.02 (240/2190 fields in zone), null 5-95pct = [0.93, 1.13], p = 0.5865
+[baseline ep 48000] enrichment ratio = 1.06 (252/2206 fields in zone), null 5-95pct = [0.93, 1.13], p = 0.3225
+[baseline ep 49000] enrichment ratio = 1.10 (261/2199 fields in zone), null 5-95pct = [0.91, 1.12], p = 0.0965
+[baseline ep 50000] enrichment ratio = 0.93 (212/2114 fields in zone), null 5-95pct = [0.93, 1.13], p = 0.9435
+[reward_modulated ep 21000] enrichment ratio = 1.16 (158/1264 fields in zone), null 5-95pct = [0.89, 1.16], p = 0.0620
+[reward_modulated ep 22000] enrichment ratio = 1.04 (135/1199 fields in zone), null 5-95pct = [0.90, 1.18], p = 0.4800
+[reward_modulated ep 23000] enrichment ratio = 1.33 (180/1257 fields in zone), null 5-95pct = [0.89, 1.17], p = 0.0000
+[reward_modulated ep 24000] enrichment ratio = 1.25 (168/1244 fields in zone), null 5-95pct = [0.89, 1.16], p = 0.0040
+[reward_modulated ep 25000] enrichment ratio = 1.27 (179/1304 fields in zone), null 5-95pct = [0.90, 1.16], p = 0.0015
+[reward_modulated ep 26000] enrichment ratio = 1.43 (201/1304 fields in zone), null 5-95pct = [0.90, 1.17], p = 0.0000
+[reward_modulated ep 27000] enrichment ratio = 1.32 (176/1239 fields in zone), null 5-95pct = [0.90, 1.16], p = 0.0005
+[reward_modulated ep 28000] enrichment ratio = 1.19 (159/1241 fields in zone), null 5-95pct = [0.89, 1.16], p = 0.0255
+[reward_modulated ep 29000] enrichment ratio = 1.36 (185/1261 fields in zone), null 5-95pct = [0.90, 1.16], p = 0.0000
+[reward_modulated ep 30000] enrichment ratio = 1.46 (196/1244 fields in zone), null 5-95pct = [0.91, 1.18], p = 0.0000
+[reward_modulated ep 31000] enrichment ratio = 1.26 (177/1302 fields in zone), null 5-95pct = [0.90, 1.16], p = 0.0040
+[reward_modulated ep 32000] enrichment ratio = 1.43 (192/1242 fields in zone), null 5-95pct = [0.89, 1.16], p = 0.0000
+[reward_modulated ep 33000] enrichment ratio = 1.51 (230/1409 fields in zone), null 5-95pct = [0.90, 1.15], p = 0.0000
+[reward_modulated ep 34000] enrichment ratio = 1.48 (208/1305 fields in zone), null 5-95pct = [0.91, 1.17], p = 0.0000
+[reward_modulated ep 35000] enrichment ratio = 1.29 (184/1321 fields in zone), null 5-95pct = [0.90, 1.17], p = 0.0010
+[reward_modulated ep 36000] enrichment ratio = 1.27 (177/1297 fields in zone), null 5-95pct = [0.89, 1.16], p = 0.0005
+[reward_modulated ep 37000] enrichment ratio = 1.32 (181/1270 fields in zone), null 5-95pct = [0.89, 1.16], p = 0.0005
+[reward_modulated ep 38000] enrichment ratio = 1.33 (188/1310 fields in zone), null 5-95pct = [0.90, 1.15], p = 0.0005
+[reward_modulated ep 39000] enrichment ratio = 1.14 (152/1236 fields in zone), null 5-95pct = [0.92, 1.19], p = 0.1485
+[reward_modulated ep 40000] enrichment ratio = 1.35 (193/1328 fields in zone), null 5-95pct = [0.89, 1.15], p = 0.0000
+[reward_modulated ep 41000] enrichment ratio = 1.43 (192/1241 fields in zone), null 5-95pct = [0.90, 1.17], p = 0.0000
+[reward_modulated ep 42000] enrichment ratio = 1.51 (214/1310 fields in zone), null 5-95pct = [0.88, 1.15], p = 0.0000
+[reward_modulated ep 43000] enrichment ratio = 1.55 (204/1219 fields in zone), null 5-95pct = [0.91, 1.17], p = 0.0000
+[reward_modulated ep 44000] enrichment ratio = 1.58 (204/1198 fields in zone), null 5-95pct = [0.90, 1.17], p = 0.0000
+[reward_modulated ep 45000] enrichment ratio = 1.25 (164/1220 fields in zone), null 5-95pct = [0.90, 1.17], p = 0.0070
+[reward_modulated ep 46000] enrichment ratio = 1.35 (183/1255 fields in zone), null 5-95pct = [0.89, 1.16], p = 0.0000
+[reward_modulated ep 47000] enrichment ratio = 1.13 (157/1285 fields in zone), null 5-95pct = [0.89, 1.16], p = 0.1105
+[reward_modulated ep 48000] enrichment ratio = 1.34 (180/1245 fields in zone), null 5-95pct = [0.89, 1.15], p = 0.0000
+[reward_modulated ep 49000] enrichment ratio = 1.30 (185/1323 fields in zone), null 5-95pct = [0.89, 1.15], p = 0.0000
+[reward_modulated ep 50000] enrichment ratio = 1.30 (176/1255 fields in zone), null 5-95pct = [0.89, 1.17], p = 0.0005
+Saved: C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\predictive_analysis\reward_zone_enrichment.png
+Saved: C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\predictive_analysis\reward_zone_field_distance_hist.png
+
+All done. Results in: C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\predictive_analysis
+
+conda : C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\..\..\neuralplaygroun
+d\agents\whittington_2020_extras\whittington_2020_model.py:1553: UserWarning: To copy construct from a tensor, it is 
+recommended to use sourceTensor.detach().clone() or sourceTensor.detach().clone().requires_grad_(True), rather than 
+torch.tensor(sourceTensor).
+At line:1 char:398
++ ... _examples"; conda run -n tem_env python tem_probe_eval_multienv.py *> ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (C:\Users\hansl\...(sourceTensor).:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  M_new = M_new * torch.tensor(self.hyper["p_update_mask"], device=M_new.device)
+C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\..\..\neuralplayground\agents
+\whittington_2020_extras\whittington_2020_model.py:1553: UserWarning: To copy construct from a tensor, it is 
+recommended to use sourceTensor.detach().clone() or sourceTensor.detach().clone().requires_grad_(True), rather than 
+torch.tensor(sourceTensor).
+  M_new = M_new * torch.tensor(self.hyper["p_update_mask"], device=M_new.device)
+

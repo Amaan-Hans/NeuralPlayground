@@ -7,14 +7,30 @@ counts for the reward-zone enrichment test in tem_predictive_analysis.py,
 which needs pooled data across many environments - one 100-144-state
 environment alone yields too few place fields for a meaningful shuffle test.
 
-Runs a long *random*-policy walk (not the square loop) across all 16 envs
-simultaneously so every environment's state space gets broad coverage, then
-calls the (now multi-env-aware) run_eval() from _tem_eval.py to produce
-p_rates_multienv.npz + env_meta.pkl for every environment in the batch.
+Runs a single long *random*-policy walk of N_EPISODES rollouts across all 16
+envs simultaneously via run_multienv_probe() in _tem_eval.py, which drives
+the walk AND the rate-map forward pass together, one chunk (CHUNK_EPISODES
+rollouts) at a time - each chunk's raw observation history is discarded
+immediately after being folded into a running sum/count accumulator, so
+memory stays flat regardless of N_EPISODES rather than growing for the whole
+walk before being processed.
 
-Saved under a distinct episode label (20000) so it doesn't collide with the
-existing training checkpoints (1000-5000) or the square-loop demo probe
-(10000) from tem_probe_eval.py.
+No env-0 diagnostic plots (place_cells_*.png, grid_cells_*.png,
+trajectory.png, ...) - this script produces one rate-map array per
+environment per condition, meant to be pooled and summarised by
+tem_predictive_analysis.py, not browsed frame-by-frame.
+
+Output is saved under results_sim/predictive_analysis/probe/ (its own
+subfolder, not mixed into predictive_analysis/'s flat file list, and NOT
+into results_sim/<condition>/plots/ - that folder is scanned by several
+other analyses (population activity, peak distance, grid scores, proximal
+cell count) that should only ever see real training checkpoints, and a
+frozen-weight probe of the *final* trained model has nothing to do with any
+specific training episode). A snapshot is written every SAVE_EVERY_EPISODES
+episodes (overwriting the same file), so progress is visible on disk as the
+probe runs and the run is resumable from the last snapshot if interrupted -
+the final post-completion save is what tem_predictive_analysis.py treats as
+authoritative.
 
 Usage
 -----
@@ -29,18 +45,21 @@ import random
 import sys
 
 import numpy as np
-import pandas as pd
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
-from _tem_eval import run_eval
+from _tem_eval import run_multienv_probe
 
 # ── Config ────────────────────────────────────────────────────────────────────
-TRAJECTORY_SEED = 42
-EPISODE_LABEL   = 20000
-N_STEPS         = 30000   # random-policy steps; ~30000/144 ~ 200 visits/state
-                           # for the largest (12x12) envs
-START_POS       = [0, 0]
+TRAJECTORY_SEED     = 123
+N_EPISODES          = 5000    # rollouts (not raw steps) - total steps = N_EPISODES * n_rollout
+CHUNK_EPISODES      = 10      # rollouts processed per forward-pass chunk
+WARMUP_STEPS        = 500     # dropped from the start of the window before averaging
+SAVE_EVERY_EPISODES = 500     # write a snapshot this often (overwrites previous snapshot)
+START_POS           = [0, 0]
+
+RESULTS_DIR   = os.path.join(os.getcwd(), "results_sim")
+PROBE_OUT_DIR = os.path.join(RESULTS_DIR, "predictive_analysis", "probe")
 # ──────────────────────────────────────────────────────────────────────────────
 
 
@@ -54,7 +73,9 @@ def _load_model_from_save(save_path):
 
 
 def probe_condition(condition: str):
-    save_path = os.path.join(os.getcwd(), "results_sim", condition)
+    import pandas as pd
+
+    save_path = os.path.join(RESULTS_DIR, condition)
     agent_path = os.path.join(save_path, "agent")
 
     if not os.path.exists(agent_path):
@@ -89,31 +110,21 @@ def probe_condition(condition: str):
     np.random.seed(TRAJECTORY_SEED)
     obs, state = env.reset(random_state=False, custom_state=START_POS)
 
-    n_rollout = agent.pars["n_rollout"]
-    episode = 0
-    steps_taken = 0
+    print(f"  Random-policy walk: {N_EPISODES} episodes across all 16 envs, "
+          f"chunk={CHUNK_EPISODES} episodes, saving to {PROBE_OUT_DIR}...", flush=True)
 
-    print(f"  Random-policy walk: {N_STEPS} steps across all 16 envs...")
+    rates, env_meta = run_multienv_probe(
+        agent, env, obs, n_episodes=N_EPISODES, chunk_episodes=CHUNK_EPISODES,
+        warmup_steps=WARMUP_STEPS, progress_prefix=f"[{condition}] ",
+        save_dir=PROBE_OUT_DIR, save_every_episodes=SAVE_EVERY_EPISODES,
+        condition=condition,
+    )
+    if not rates:
+        print(f"  [{condition}] No usable data from probe walk.")
+        return
 
-    while steps_taken < N_STEPS:
-        n_walk_before = agent.n_walk
-        actions = agent.batch_act(obs)
-        obs, state, reward = env.step(actions, normalize_step=True)
-
-        if agent.n_walk > n_walk_before:
-            steps_taken += 1
-
-        if agent.n_walk >= n_rollout:
-            agent.n_walk = 0
-            episode += 1
-            if episode % 100 == 0:
-                print(f"    ep {episode:5d}  steps {steps_taken:6d}", flush=True)
-
-    agent.tem.train()
-    print(f"  Collected {steps_taken} steps across {episode} episodes.")
-    print(f"  Running multi-env eval -> episode_{EPISODE_LABEL}/")
-    run_eval(agent, env, EPISODE_LABEL, save_path)
-    print(f"  Done: {save_path}/plots/episode_{EPISODE_LABEL}/")
+    print(f"  Saved: {os.path.join(PROBE_OUT_DIR, f'probe_{condition}_rates.npz')}")
+    print(f"  Saved: {os.path.join(PROBE_OUT_DIR, f'probe_{condition}_meta.pkl')}")
 
 
 if __name__ == "__main__":

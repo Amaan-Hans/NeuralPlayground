@@ -1,0 +1,163 @@
+﻿Square loop path (14 states): [(-0.5, -0.5), (np.float64(-0.5), np.float64(0.5)), (np.float64(-0.5), np.float64(1.5)), (np.float64(-0.5), np.float64(2.5)), (np.float64(-0.5), np.float64(3.5)), (np.float64(0.5), np.float64(3.5)), (np.float64(1.5), np.float64(3.5)), (np.float64(2.5), np.float64(3.5)), (np.float64(2.5), np.float64(2.5)), (np.float64(2.5), np.float64(1.5)), (np.float64(2.5), np.float64(0.5)), (np.float64(2.5), np.float64(-0.5)), (np.float64(1.5), np.float64(-0.5)), (np.float64(0.5), np.float64(-0.5))]
+Reward-adjacent state: (np.float64(2.5), np.float64(2.5))  (path index 8 of 14)
+Landmark positions: 9 explicit (on the approach to reward), 1 reward-distance-biased random
+  [(-0.5, -0.5), (np.float64(-0.5), np.float64(0.5)), (np.float64(-0.5), np.float64(1.5)), (np.float64(-0.5), np.float64(2.5)), (np.float64(-0.5), np.float64(3.5)), (np.float64(0.5), np.float64(3.5)), (np.float64(1.5), np.float64(3.5)), (np.float64(2.5), np.float64(3.5)), (np.float64(2.5), np.float64(2.5))]
+TEM using device: cuda
+
+Condition : baseline
+Episodes  : 5000  (phase 1: 2500, phase 2: 2500)
+Save path : C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim_loop\baseline
+python.exe : C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\neuralplayground\agents\whittington_2020
+_extras\whittington_2020_model.py:1553: UserWarning: To copy construct from a tensor, it is recommended to use 
+sourceTensor.detach().clone() or sourceTensor.detach().clone().requires_grad_(True), rather than 
+torch.tensor(sourceTensor).
+At line:1 char:398
++ ... _examples"; & "C:\Users\hansl\miniconda3\envs\tem_env\python.exe" -u  ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (C:\Users\hansl\...(sourceTensor).:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  M_new = M_new * torch.tensor(self.hyper["p_update_mask"], device=M_new.device)
+  ep    500/5000  [random]
+  [eval ep 500] plots saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim_loop\baseline\plots\episode_500
+  ep   1000/5000  [random]
+  [eval ep 1000] plots saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim_loop\baseline\plots\episode_1000
+  ep   1500/5000  [random]
+  [eval ep 1500] plots saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim_loop\baseline\plots\episode_1500
+  ep   2000/5000  [random]
+  [eval ep 2000] plots saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim_loop\baseline\plots\episode_2000
+  ep   2500/5000  [random]
+  [eval ep 2500] plots saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim_loop\baseline\plots\episode_2500
+>> Phase 2 start (ep 2501): env reset to (-0.5, -0.5), square loop begins.
+  ep   3000/5000  [loop]
+  [eval ep 3000] plots saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim_loop\baseline\plots\episode_3000
+  ep   3500/5000  [loop]
+  [eval ep 3500] plots saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim_loop\baseline\plots\episode_3500
+  ep   4000/5000  [loop]
+  [eval ep 4000] plots saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim_loop\baseline\plots\episode_4000
+  ep   4500/5000  [loop]
+  [eval ep 4500] plots saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim_loop\baseline\plots\episode_4500
+  ep   5000/5000  [loop]
+  [eval ep 5000] plots saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim_loop\baseline\plots\episode_5000
+Saving...
+Done. Results in: C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim_loop\baseline
+TEM using device: cuda
+
+Condition : reward_modulated
+Episodes  : 5000  (phase 1: 2500, phase 2: 2500)
+Save path : C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim_loop\reward_modulated
+  ep    500/5000  [random]
+  [eval ep 500] plots saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim_loop\reward_modulated\plots\episode_500
+  ep   1000/5000  [random]
+  [eval ep 1000] plots saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim_loop\reward_modulated\plots\episode_1000
+  ep   1500/5000  [random]
+  [eval ep 1500] plots saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim_loop\reward_modulated\plots\episode_1500
+  ep   2000/5000  [random]
+  [eval ep 2000] plots saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim_loop\reward_modulated\plots\episode_2000
+  ep   2500/5000  [random]
+  [eval ep 2500] plots saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim_loop\reward_modulated\plots\episode_2500
+>> Phase 2 start (ep 2501): env reset to (-0.5, -0.5), square loop begins.
+  ep   3000/5000  [loop]
+  [eval ep 3000] plots saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim_loop\reward_modulated\plots\episode_3000
+  ep   3500/5000  [loop]
+  [eval ep 3500] plots saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim_loop\reward_modulated\plots\episode_3500
+  ep   4000/5000  [loop]
+  [eval ep 4000] plots saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim_loop\reward_modulated\plots\episode_4000
+  ep   4500/5000  [loop]
+  [eval ep 4500] plots saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim_loop\reward_modulated\plots\episode_4500
+  ep   5000/5000  [loop]
+  [eval ep 5000] plots saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim_loop\reward_modulated\plots\episode_5000
+Saving...
+Done. Results in: C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim_loop\reward_modulated
+
+Both conditions done — running predictive analysis...
+Saved: C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim_loop\predictive_analysis\population_activity_baseline.png
+Saved: C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim_loop\predictive_analysis\population_activity_reward_modulated.png
+Saved: C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim_loop\predictive_analysis\value_correlation.png
+Saved: C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim_loop\predictive_analysis\peak_distance_from_reward.png
+Saved: C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim_loop\predictive_analysis\peak_distance_hist_baseline.png
+Saved: C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim_loop\predictive_analysis\peak_distance_hist_reward_modulated.png
+C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\neuralplayground\comparison\metrics.py:281: 
+FutureWarning: Calling ``EllipseModel()`` (without arguments) has been deprecated since version 0.26 and will be 
+removed in version 2.2; see help for ``EllipseModel``.
+  E = EllipseModel()
+C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\neuralplayground\comparison\metrics.py:282: 
+FutureWarning: `estimate` is deprecated since version 0.26 and will be removed in version 2.2. Please use 
+`EllipseModel.from_estimate` class constructor instead.
+  E.estimate(ellipse_fit_coords)
+C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\neuralplayground\comparison\metrics.py:283: 
+FutureWarning: `params` is deprecated since version 0.26 and will be removed in version 2.2. `params` attribute 
+deprecated; use `center, axis_lengths, theta` attributes instead.
+  im_centre = E.params[0:2]
+C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\neuralplayground\comparison\metrics.py:284: 
+FutureWarning: `params` is deprecated since version 0.26 and will be removed in version 2.2. `params` attribute 
+deprecated; use `center, axis_lengths, theta` attributes instead.
+  ellipse_axes = E.params[2:4]
+C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\neuralplayground\comparison\metrics.py:285: 
+FutureWarning: `params` is deprecated since version 0.26 and will be removed in version 2.2. `params` attribute 
+deprecated; use `center, axis_lengths, theta` attributes instead.
+  ellipse_angle = E.params[-1]
+C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\neuralplayground\comparison\metrics.py:286: 
+FutureWarning: `params` is deprecated since version 0.26 and will be removed in version 2.2. `params` attribute 
+deprecated; use `center, axis_lengths, theta` attributes instead.
+  ellipseXY = E.predict_xy(np.linspace(0, 2 * np.pi, 50), E.params)
+C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\neuralplayground\comparison\metrics.py:286: 
+FutureWarning: Parameter `params` is deprecated since version 0.26 and will be removed in 2.2 (or later). To avoid 
+this warning, please do not use the parameter `params`. For more details, see the documentation of 
+`EllipseModel.predict_xy`.
+  ellipseXY = E.predict_xy(np.linspace(0, 2 * np.pi, 50), E.params)
+C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\neuralplayground\comparison\metrics.py:293: 
+FutureWarning: Calling ``CircleModel()`` (without arguments) has been deprecated since version 0.26 and will be 
+removed in version 2.2; see help for ``CircleModel``.
+  circleXY = CircleModel().predict_xy(
+C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\neuralplayground\comparison\metrics.py:293: 
+FutureWarning: Parameter `params` is deprecated since version 0.26 and will be removed in 2.2 (or later). To avoid 
+this warning, please do not use the parameter `params`. For more details, see the documentation of 
+`CircleModel.predict_xy`.
+  circleXY = CircleModel().predict_xy(
+C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\neuralplayground\comparison\metrics.py:126: 
+RuntimeWarning: invalid value encountered in divide
+  A = np.squeeze(mapCovar / mapStd / mapStd[::-1, :, :][:, ::-1, :][:, :, :])
+C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\neuralplayground\comparison\metrics.py:124: 
+RuntimeWarning: invalid value encountered in sqrt
+  mapStd = np.sqrt((sumOfSquares_x * N) - sums_x**2)
+C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\neuralplayground\comparison\metrics.py:126: 
+RuntimeWarning: divide by zero encountered in divide
+  A = np.squeeze(mapCovar / mapStd / mapStd[::-1, :, :][:, ::-1, :][:, :, :])
+C:\Users\hansl\miniconda3\envs\tem_env\Lib\site-packages\skimage\transform\_warps.py:765: RuntimeWarning: All-NaN 
+slice encountered
+  and min_func(output_image) <= cval <= max_func(output_image)
+C:\Users\hansl\miniconda3\envs\tem_env\Lib\site-packages\skimage\measure\fit.py:941: RuntimeWarning: divide by zero 
+encountered in scalar divide
+  phi = 0.5 * np.arctan((2.0 * b) / (a - c))
+C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\neuralplayground\comparison\metrics.py:282: 
+RuntimeWarning: Need at least 5 data points to estimate an ellipse.
+  E.estimate(ellipse_fit_coords)
+C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\neuralplayground\comparison\metrics.py:552: 
+ConstantInputWarning: An input array is constant; the correlation coefficient is not defined.
+  rotationalCorrVals[angle] = stats.pearsonr(
+C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\neuralplayground\comparison\metrics.py:556: 
+RuntimeWarning: All-NaN axis encountered
+  gridscore = np.nanmin(
+C:\Users\hansl\miniconda3\envs\tem_env\Lib\site-packages\numpy\_core\fromnumeric.py:3824: RuntimeWarning: Mean of 
+empty slice
+  return _methods._mean(a, axis=axis, dtype=dtype,
+C:\Users\hansl\miniconda3\envs\tem_env\Lib\site-packages\numpy\_core\_methods.py:142: RuntimeWarning: invalid value 
+encountered in scalar divide
+  ret = ret.dtype.type(ret / rcount)
+C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\neuralplayground\comparison\metrics.py:536: 
+RuntimeWarning: All-NaN slice encountered
+  in_range = (np.nanmin(image), np.nanmax(image))
+C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\neuralplayground\comparison\metrics.py:540: 
+UserWarning: One or more intensity levels are NaN. Rescaling will broadcast NaN to the full image. Provide intensity 
+levels yourself to avoid this. E.g. with np.nanmin(image), np.nanmax(image).
+  autoCorrMiddleRescaled = skimage.exposure.rescale_intensity(
+C:\Users\hansl\miniconda3\envs\tem_env\Lib\site-packages\skimage\transform\_warps.py:754: RuntimeWarning: All-NaN 
+slice encountered
+  min_val = min_func(input_image)
+C:\Users\hansl\miniconda3\envs\tem_env\Lib\site-packages\skimage\transform\_warps.py:758: RuntimeWarning: All-NaN 
+slice encountered
+  max_val = max_func(input_image)
+Saved: C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim_loop\predictive_analysis\grid_scores.png
+Saved: C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim_loop\predictive_analysis\proximal_cell_count.png
+Analysis saved to: C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim_loop\predictive_analysis

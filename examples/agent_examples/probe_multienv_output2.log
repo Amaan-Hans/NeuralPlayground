@@ -1,0 +1,78 @@
+﻿conda : C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\..\..\neuralplaygroun
+d\agents\whittington_2020_extras\whittington_2020_model.py:1553: UserWarning: To copy construct from a tensor, it is 
+recommended to use sourceTensor.detach().clone() or sourceTensor.detach().clone().requires_grad_(True), rather than 
+torch.tensor(sourceTensor).
+At line:1 char:398
++ ... _examples"; conda run -n tem_env python tem_probe_eval_multienv.py *> ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (C:\Users\hansl\...(sourceTensor).:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  M_new = M_new * torch.tensor(self.hyper["p_update_mask"], device=M_new.device)
+C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\..\..\neuralplayground\agents
+\whittington_2020_extras\whittington_2020_model.py:1553: UserWarning: To copy construct from a tensor, it is 
+recommended to use sourceTensor.detach().clone() or sourceTensor.detach().clone().requires_grad_(True), rather than 
+torch.tensor(sourceTensor).
+  M_new = M_new * torch.tensor(self.hyper["p_update_mask"], device=M_new.device)
+
+
+============================================================
+Multi-env probing: baseline
+============================================================
+  TEM weights loaded (166 tensors)
+TEM using device: cuda
+  Random-policy walk: 30000 steps across all 16 envs...
+    ep   100  steps   2001
+    ep   200  steps   4001
+    ep   300  steps   6001
+    ep   400  steps   8001
+    ep   500  steps  10001
+    ep   600  steps  12001
+    ep   700  steps  14001
+    ep   800  steps  16001
+    ep   900  steps  18001
+    ep  1000  steps  20001
+    ep  1100  steps  22001
+    ep  1200  steps  24001
+    ep  1300  steps  26001
+    ep  1400  steps  28001
+  Collected 30000 steps across 1499 episodes.
+  Running multi-env eval -> episode_20000/
+  [eval ep 20000] plots saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\baseline\plots\episode_20000
+  [eval-multienv ep 20000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\baseline\plots\episode_20000
+  Done: C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\baseline/plots/episode_20000/
+
+============================================================
+Multi-env probing: reward_modulated
+============================================================
+  TEM weights loaded (166 tensors)
+TEM using device: cuda
+  Random-policy walk: 30000 steps across all 16 envs...
+    ep   100  steps   2001
+    ep   200  steps   4001
+    ep   300  steps   6001
+    ep   400  steps   8001
+    ep   500  steps  10001
+    ep   600  steps  12001
+    ep   700  steps  14001
+    ep   800  steps  16001
+    ep   900  steps  18001
+    ep  1000  steps  20001
+    ep  1100  steps  22001
+    ep  1200  steps  24001
+    ep  1300  steps  26001
+    ep  1400  steps  28001
+  Collected 30000 steps across 1499 episodes.
+  Running multi-env eval -> episode_20000/
+  [eval ep 20000] plots saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\reward_modulated\plots\episode_20000
+  [eval-multienv ep 20000] saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\reward_modulated\plots\episode_20000
+  Done: C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\reward_modulated/plots/episode_20000/
+
+Running reward-zone field enrichment analysis...
+[baseline ep 20000] enrichment ratio = 0.93 (212/2114 fields in zone), null 5-95pct = [0.92, 1.14], p = 0.9370
+[reward_modulated ep 20000] enrichment ratio = 1.30 (176/1255 fields in zone), null 5-95pct = [0.90, 1.15], p = 0.0000
+Saved: C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\predictive_analysis\reward_zone_enrichment.png
+Saved: C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\predictive_analysis\reward_zone_field_distance_hist.png
+
+All done. Results in: C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\examples\agent_examples\results_sim\predictive_analysis
+

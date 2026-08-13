@@ -112,6 +112,14 @@ class DiscreteObjectEnvironment(Environment):
         self.n_landmarks = env_kwargs.get("n_landmarks", 0)
         self.reward_location = env_kwargs.get("reward_location", None)
         self.landmark_bias_scale = env_kwargs.get("landmark_bias_scale", 2.0)
+        # Optional explicit landmark placement: list of (x, y) positions, one
+        # per landmark id in order (landmark_positions[0] -> id 0, etc.),
+        # e.g. states along a fixed trajectory ("landmarks on the way to the
+        # reward"). Overrides the default distance-biased random sampling for
+        # however many positions are given; if fewer than n_landmarks, the
+        # remaining ids still use the biased random sampling, restricted to
+        # states not already claimed by an explicit position.
+        self.landmark_positions = env_kwargs.get("landmark_positions", None)
         self.arena_limits = np.array(
             [
                 [self.arena_x_limits[0], self.arena_x_limits[1]],
@@ -284,10 +292,17 @@ class DiscreteObjectEnvironment(Environment):
 
         If ``self.n_landmarks > 0``, object ids ``[0, n_landmarks)`` are each
         placed at exactly one state (never duplicated within this
-        environment), sampled without replacement with probability biased
-        toward states closer to ``self.reward_location`` (if set). The
-        remaining ``n_objects - n_landmarks`` ids are distributed across all
-        other states exactly as before: uniform random, with replacement.
+        environment). If ``self.landmark_positions`` is set, the first
+        ``len(landmark_positions)`` landmark ids are placed at exactly those
+        states, in order (id 0 at ``landmark_positions[0]``, etc.) - e.g. a
+        fixed trajectory's states, so those landmarks are guaranteed to be
+        "on the way" along that path rather than merely biased toward it.
+        Any remaining landmark ids (or all of them, if ``landmark_positions``
+        is not set) are sampled without replacement from the rest of the
+        states, weighted toward states closer to ``self.reward_location`` (if
+        set). The remaining ``n_objects - n_landmarks`` ids are distributed
+        across all other states exactly as before: uniform random, with
+        replacement.
 
         Returns
         -------
@@ -303,15 +318,35 @@ class DiscreteObjectEnvironment(Environment):
         objects = np.zeros(shape=(self.n_states, self.n_objects))
 
         if self.n_landmarks > 0:
-            state_xy = self.xy_combination.reshape(-1, 2)
-            if self.reward_location is not None:
-                dist = np.linalg.norm(state_xy - np.array(self.reward_location), axis=1)
-                weights = np.exp(-dist / self.landmark_bias_scale)
-            else:
-                weights = np.ones(self.n_states)
-            landmark_states = self._weighted_sample_without_replacement(
-                list(range(self.n_states)), weights.tolist(), self.n_landmarks
-            )
+            explicit_states = []
+            if self.landmark_positions:
+                for pos in self.landmark_positions[: self.n_landmarks]:
+                    state_id = int(self.pos_to_state(np.array(pos)))
+                    if state_id in explicit_states:
+                        raise ValueError(
+                            f"landmark_positions collide on the same state: {pos} "
+                            f"maps to state {state_id}, already claimed by an earlier "
+                            f"position - each landmark must occupy a distinct state."
+                        )
+                    explicit_states.append(state_id)
+
+            n_remaining = self.n_landmarks - len(explicit_states)
+            remaining_landmark_states = []
+            if n_remaining > 0:
+                candidate_states = [
+                    s for s in range(self.n_states) if s not in set(explicit_states)
+                ]
+                state_xy = self.xy_combination.reshape(-1, 2)[candidate_states]
+                if self.reward_location is not None:
+                    dist = np.linalg.norm(state_xy - np.array(self.reward_location), axis=1)
+                    weights = np.exp(-dist / self.landmark_bias_scale)
+                else:
+                    weights = np.ones(len(candidate_states))
+                remaining_landmark_states = self._weighted_sample_without_replacement(
+                    candidate_states, weights.tolist(), n_remaining
+                )
+
+            landmark_states = explicit_states + remaining_landmark_states
             decoy_states = [s for s in range(self.n_states) if s not in set(landmark_states)]
             for landmark_id, state_id in enumerate(landmark_states):
                 objects[state_id, :] = poss_objects[landmark_id]
