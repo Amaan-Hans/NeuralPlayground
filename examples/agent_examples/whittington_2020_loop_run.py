@@ -40,10 +40,18 @@ Flags
 TEST_MODE : True  = 100 episodes total (quick sanity check)
             False = 5 000 episodes (2 500 random + 2 500 loop)
 
+Env-var overrides (TEM_TEST_MODE / TEM_USE_REWARD / TEM_SEED / TEM_SAVE_ROOT)
+let run_loop_experiment.py drive a single condition, seed, and output root
+per process without editing this file; see that script for the parallel
+baseline + reward_modulated driver. Run standalone (no env vars set) for the
+legacy behaviour: both conditions sequentially in this one process, then the
+post-hoc analysis.
+
 Usage
 -----
     cd examples/agent_examples
-    python whittington_2020_loop_run.py
+    python whittington_2020_loop_run.py             # both conditions, seed 123 (legacy)
+    python run_loop_experiment.py                    # both conditions in parallel, seed 42, saved under experiments/seed_42/
 """
 
 import os
@@ -62,10 +70,13 @@ from neuralplayground.arenas import BatchEnvironment, DiscreteObjectEnvironment
 from neuralplayground.experiments import Sargolini2006Data
 
 # ── Flags ──────────────────────────────────────────────────────────────────────
-TEST_MODE = False   # True = 100 episodes; False = 5 000 episodes
+# Env-var overrides let run_loop_experiment.py drive both conditions (and a
+# chosen seed/output root) from one command without editing this file; manual
+# edits of the literals below still work for one-off interactive runs.
+TEST_MODE = os.environ.get("TEM_TEST_MODE", "0") == "1"   # True = 100 episodes; False = 5 000 episodes
 # ──────────────────────────────────────────────────────────────────────────────
 
-TRAJECTORY_SEED       = 123
+TRAJECTORY_SEED       = int(os.environ.get("TEM_SEED", "123"))
 REWARD_LOCATION       = [3.0, 3.0]
 TD_ALPHA              = 0.1
 TD_GAMMA              = 0.95
@@ -77,6 +88,14 @@ N_PHASE1_EPISODES = 50  if TEST_MODE else 2_500
 EVAL_INTERVAL     = 10  if TEST_MODE else 500
 
 _suffix = "_test" if TEST_MODE else ""
+
+# Set by run_loop_experiment.py to run just one condition in this process (so
+# baseline/reward_modulated can be launched as separate parallel subprocesses)
+# and to redirect output under experiments/seed_<N>/ instead of the default
+# results_sim_loop<suffix>/. Unset = legacy standalone behaviour: this script
+# runs both conditions itself, sequentially, then the post-hoc analysis.
+_ENV_USE_REWARD = os.environ.get("TEM_USE_REWARD")
+_SAVE_ROOT       = os.environ.get("TEM_SAVE_ROOT")
 
 # ── Arena setup (identical to whittington_2020_run.py) ─────────────────────────
 arena_x_limits = [
@@ -206,7 +225,8 @@ def run_condition(use_reward: bool):
     not what this request was about; flagging it in case it should change.
     """
     condition = "reward_modulated" if use_reward else "baseline"
-    save_path = os.path.join(os.getcwd(), "results_sim_loop" + _suffix, condition)
+    root = _SAVE_ROOT if _SAVE_ROOT else os.path.join(os.getcwd(), "results_sim_loop" + _suffix)
+    save_path = os.path.join(root, condition)
     os.makedirs(save_path, exist_ok=True)
 
     agent_params = {
@@ -270,7 +290,10 @@ def run_condition(use_reward: bool):
         # ── Gradient update ────────────────────────────────────────────────────
         agent.update()
 
-        if episode % EVAL_INTERVAL == 0:
+        # episode == 1 is always evaluated too (in addition to the regular
+        # EVAL_INTERVAL cadence) so the training-progress plots have a
+        # checkpoint at the very start, not just from EVAL_INTERVAL onward.
+        if episode % EVAL_INTERVAL == 0 or episode == 1:
             phase = "loop" if in_phase2 else "random"
             print(f"  ep {episode:6d}/{N_TOTAL_EPISODES}  [{phase}]", flush=True)
             run_eval(agent, env, episode, save_path)
@@ -303,24 +326,32 @@ def run_condition(use_reward: bool):
 
 
 if __name__ == "__main__":
-    run_condition(use_reward=False)
-    run_condition(use_reward=True)
+    if _ENV_USE_REWARD is None:
+        # Legacy standalone behaviour: run both conditions sequentially in
+        # this one process, then run the post-hoc analysis directly.
+        run_condition(use_reward=False)
+        run_condition(use_reward=True)
 
-    # ── Post-hoc analysis ───────────────────────────────────────────────────────
-    _baseline_plots = os.path.join(os.getcwd(), "results_sim_loop" + _suffix, "baseline", "plots")
-    _reward_plots   = os.path.join(os.getcwd(), "results_sim_loop" + _suffix, "reward_modulated", "plots")
+        _root = _SAVE_ROOT if _SAVE_ROOT else os.path.join(os.getcwd(), "results_sim_loop" + _suffix)
+        _baseline_plots = os.path.join(_root, "baseline", "plots")
+        _reward_plots   = os.path.join(_root, "reward_modulated", "plots")
 
-    print("\nBoth conditions done — running predictive analysis...")
-    import tem_predictive_analysis as pa
-    pa.RESULTS_ROOT       = os.path.join(os.getcwd(), "results_sim_loop" + _suffix)
-    pa.BASELINE_DIR       = _baseline_plots
-    pa.REWARD_DIR         = _reward_plots
-    pa.OUT_DIR            = os.path.join(pa.RESULTS_ROOT, "predictive_analysis")
-    pa.LOOP_START_EPISODE = N_PHASE1_EPISODES
-    os.makedirs(pa.OUT_DIR, exist_ok=True)
-    pa.plot_population_activity_maps()
-    pa.plot_value_correlation()
-    pa.plot_peak_distance()
-    pa.plot_grid_scores()
-    pa.plot_proximal_cell_count()
-    print(f"Analysis saved to: {pa.OUT_DIR}")
+        print("\nBoth conditions done — running predictive analysis...")
+        import tem_predictive_analysis as pa
+        pa.RESULTS_ROOT       = _root
+        pa.BASELINE_DIR       = _baseline_plots
+        pa.REWARD_DIR         = _reward_plots
+        pa.OUT_DIR            = os.path.join(pa.RESULTS_ROOT, "predictive_analysis")
+        pa.LOOP_START_EPISODE = N_PHASE1_EPISODES
+        os.makedirs(pa.OUT_DIR, exist_ok=True)
+        pa.plot_population_activity_maps()
+        pa.plot_value_correlation()
+        pa.plot_peak_distance()
+        pa.plot_grid_scores()
+        pa.plot_proximal_cell_count()
+        print(f"Analysis saved to: {pa.OUT_DIR}")
+    else:
+        # Driven by run_loop_experiment.py: run just this one condition as an
+        # isolated process (so baseline/reward_modulated can run in parallel).
+        # The driver runs the post-hoc analysis itself once both finish.
+        run_condition(use_reward=(_ENV_USE_REWARD == "1"))

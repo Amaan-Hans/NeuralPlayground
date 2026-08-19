@@ -1,0 +1,34 @@
+
+======================================================================
+Starting whittington_2020_loop_run.py  {'TEM_TEST_MODE': '0', 'TEM_SEED': '42', 'TEM_SAVE_ROOT': 'C:\\Users\\hansl\\Desktop\\Projects\\Masters_research\\NeuralPlayground\\experiments\\seed_42', 'TEM_USE_REWARD': '0'}
+======================================================================
+
+======================================================================
+Starting whittington_2020_loop_run.py  {'TEM_TEST_MODE': '0', 'TEM_SEED': '42', 'TEM_SAVE_ROOT': 'C:\\Users\\hansl\\Desktop\\Projects\\Masters_research\\NeuralPlayground\\experiments\\seed_42', 'TEM_USE_REWARD': '1'}
+======================================================================
+Square loop path (14 states): [(-0.5, -0.5), (np.float64(-0.5), np.float64(0.5)), (np.float64(-0.5), np.float64(1.5)), (np.float64(-0.5), np.float64(2.5)), (np.float64(-0.5), np.float64(3.5)), (np.float64(0.5), np.float64(3.5)), (np.float64(1.5), np.float64(3.5)), (np.float64(2.5), np.float64(3.5)), (np.float64(2.5), np.float64(2.5)), (np.float64(2.5), np.float64(1.5)), (np.float64(2.5), np.float64(0.5)), (np.float64(2.5), np.float64(-0.5)), (np.float64(1.5), np.float64(-0.5)), (np.float64(0.5), np.float64(-0.5))]Square loop path (14 states): [(-0.5, -0.5), (np.float64(-0.5), np.float64(0.5)), (np.float64(-0.5), np.float64(1.5)), (np.float64(-0.5), np.float64(2.5)), (np.float64(-0.5), np.float64(3.5)), (np.float64(0.5), np.float64(3.5)), (np.float64(1.5), np.float64(3.5)), (np.float64(2.5), np.float64(3.5)), (np.float64(2.5), np.float64(2.5)), (np.float64(2.5), np.float64(1.5)), (np.float64(2.5), np.float64(0.5)), (np.float64(2.5), np.float64(-0.5)), (np.float64(1.5), np.float64(-0.5)), (np.float64(0.5), np.float64(-0.5))]
+Reward-adjacent state: (np.float64(2.5), np.float64(2.5))  (path index 8 of 14)
+
+Landmark positions: 9 explicit (on the approach to reward), 1 reward-distance-biased randomReward-adjacent state: (np.float64(2.5), np.float64(2.5))  (path index 8 of 14)
+Landmark positions: 9 explicit (on the approach to reward), 1 reward-distance-biased random
+
+  [(-0.5, -0.5), (np.float64(-0.5), np.float64(0.5)), (np.float64(-0.5), np.float64(1.5)), (np.float64(-0.5), np.float64(2.5)), (np.float64(-0.5), np.float64(3.5)), (np.float64(0.5), np.float64(3.5)), (np.float64(1.5), np.float64(3.5)), (np.float64(2.5), np.float64(3.5)), (np.float64(2.5), np.float64(2.5))]
+  [(-0.5, -0.5), (np.float64(-0.5), np.float64(0.5)), (np.float64(-0.5), np.float64(1.5)), (np.float64(-0.5), np.float64(2.5)), (np.float64(-0.5), np.float64(3.5)), (np.float64(0.5), np.float64(3.5)), (np.float64(1.5), np.float64(3.5)), (np.float64(2.5), np.float64(3.5)), (np.float64(2.5), np.float64(2.5))]
+TEM using device: cuda
+TEM using device: cuda
+
+Condition : baseline
+Episodes  : 5000  (phase 1: 2500, phase 2: 2500)
+Save path : C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\experiments\seed_42\baseline
+
+Condition : reward_modulated
+Episodes  : 5000  (phase 1: 2500, phase 2: 2500)
+Save path : C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\experiments\seed_42\reward_modulated
+C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\neuralplayground\agents\whittington_2020_extras\whittington_2020_model.py:1553: UserWarning: To copy construct from a tensor, it is recommended to use sourceTensor.detach().clone() or sourceTensor.detach().clone().requires_grad_(True), rather than torch.tensor(sourceTensor).
+  M_new = M_new * torch.tensor(self.hyper["p_update_mask"], device=M_new.device)
+C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\neuralplayground\agents\whittington_2020_extras\whittington_2020_model.py:1553: UserWarning: To copy construct from a tensor, it is recommended to use sourceTensor.detach().clone() or sourceTensor.detach().clone().requires_grad_(True), rather than torch.tensor(sourceTensor).
+  M_new = M_new * torch.tensor(self.hyper["p_update_mask"], device=M_new.device)
+  ep      1/5000  [random]
+  ep      1/5000  [random]
+  [eval ep 1] plots saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\experiments\seed_42\baseline\plots\episode_1
+  [eval ep 1] plots saved -> C:\Users\hansl\Desktop\Projects\Masters_research\NeuralPlayground\experiments\seed_42\reward_modulated\plots\episode_1
