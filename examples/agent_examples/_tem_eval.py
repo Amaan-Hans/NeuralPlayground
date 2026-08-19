@@ -40,6 +40,7 @@ import matplotlib.pyplot as plt
 
 FREQ_NAMES = ["Theta", "Delta", "Beta", "Gamma", "High_Gamma"]
 EVAL_STEPS = 500   # history window used for rate maps
+MIN_DISPLAY_AMPLITUDE = 0.02   # matches tem_predictive_analysis.py's MIN_AMPLITUDE convention
 
 
 def run_eval(agent, env, episode: int, eval_save_path: str):
@@ -635,7 +636,23 @@ def run_eval_multienv(agent, env, episode: int, eval_save_path: str):
 
 
 def _save_rate_maps(rates, n_cells_list, room_w, room_d, ep_dir, prefix, episode):
-    """Save one figure per frequency module."""
+    """Save one figure per frequency module.
+
+    Each cell is normalised to its OWN peak (0 = that cell's minimum, 1 =
+    that cell's own maximum firing rate) - this matches the convention
+    tem_predictive_analysis.py's field detection already uses
+    (thresh_frac * that cell's own peak, see is_place_like/detect_fields),
+    and is standard for rate-map grids: a single shared scale would wash out
+    a weakly-active cell's field shape entirely once a strongly-active cell
+    is in the same figure.
+
+    Because normalisation is per-cell, one shared colorbar can only convey
+    the *relative* meaning of the color gradient (which is genuinely the
+    same for every panel: darkest = that cell's own floor, brightest =
+    that cell's own peak) - it can't show the actual numbers, which differ
+    per cell. So each panel also gets its own peak-value annotation; the
+    colorbar and the annotations together fully specify what a color means.
+    """
     num_cols = 6
     for f_idx, (freq_name, freq_rates) in enumerate(zip(FREQ_NAMES, rates)):
         max_cells = min(30, n_cells_list[f_idx])
@@ -652,20 +669,58 @@ def _save_rate_maps(rates, n_cells_list, room_w, room_d, ep_dir, prefix, episode
             axs = axs[np.newaxis, :]
 
         label = prefix.replace("_", " ").title()
-        fig.suptitle(f"{label} – {freq_name} – episode {episode}", fontsize=12)
+        fig.suptitle(
+            f"{label} – {freq_name} – episode {episode}\n"
+            f"each panel normalised to its own peak (annotated top-left); "
+            f"colorbar shows the shared 0→peak color gradient",
+            fontsize=10,
+        )
 
         for j in range(max_cells):
             row, col = j // num_cols, j % num_cols
             cell_map = freq_rates[:, j]          # (n_states,)
             cell_2d = np.reshape(cell_map, (room_d, room_w))
-            axs[row, col].imshow(cell_2d, origin="lower", cmap="viridis", aspect="auto")
+            floor, peak = float(cell_map.min()), float(cell_map.max())
+            if peak - floor < MIN_DISPLAY_AMPLITUDE:
+                # Genuinely flat/near-inactive cell (common early in training,
+                # or a "dead" cell) - normalising to its own near-noise-level
+                # range would amplify floating-point/leaky-relu noise into a
+                # misleadingly "hot"-looking field. Use a fixed, small range
+                # instead so it correctly renders as uniformly dark.
+                vmin, vmax = 0.0, MIN_DISPLAY_AMPLITUDE
+            else:
+                vmin, vmax = floor, peak
+            # Each panel gets its own vmin/vmax, so a colorbar built from any
+            # one panel's imshow() would show that panel's absolute numbers,
+            # not the shared relative scale - normalise every panel to plain
+            # [0, 1] instead, and attach a separate, panel-independent
+            # ScalarMappable for the colorbar below.
+            normed = (cell_2d - vmin) / (vmax - vmin)
+            axs[row, col].imshow(normed, origin="lower", cmap="viridis", aspect="auto", vmin=0, vmax=1)
             axs[row, col].set_title(f"Cell {j + 1}", fontsize=7)
-            axs[row, col].axis("off")
+            axs[row, col].text(
+                0.03, 0.94, f"peak {peak:.2f}", transform=axs[row, col].transAxes,
+                fontsize=6, color="white", ha="left", va="top",
+                bbox=dict(boxstyle="round,pad=0.15", fc="black", alpha=0.55, lw=0),
+            )
+            axs[row, col].set_xticks([])
+            axs[row, col].set_yticks([])
+            for spine in axs[row, col].spines.values():
+                spine.set_visible(False)
 
         for j in range(max_cells, num_rows * num_cols):
             axs[j // num_cols, j % num_cols].axis("off")
 
-        fig.tight_layout()
+        # Panel-independent mappable: ticks are plain 0..1, correct for
+        # every panel regardless of that cell's own absolute vmin/vmax
+        # (which is why the per-panel "peak" annotation carries the actual
+        # numbers - this colorbar only conveys the color gradient itself).
+        sm = plt.cm.ScalarMappable(cmap="viridis", norm=plt.Normalize(vmin=0, vmax=1))
+        sm.set_array([])
+        cbar = fig.colorbar(sm, ax=axs, shrink=0.6, pad=0.012, aspect=32, ticks=[0, 0.25, 0.5, 0.75, 1.0])
+        cbar.set_label("relative activity (0 = each cell's own min, 1 = each cell's own max)", fontsize=7)
+        cbar.ax.tick_params(labelsize=6)
+
         fname = f"{prefix}_{freq_name}.png"
-        fig.savefig(os.path.join(ep_dir, fname), dpi=150)
+        fig.savefig(os.path.join(ep_dir, fname), dpi=150, bbox_inches="tight")
         plt.close(fig)

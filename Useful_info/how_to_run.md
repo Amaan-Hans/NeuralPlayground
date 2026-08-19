@@ -9,6 +9,14 @@ conda activate tem_env
 
 ---
 
+## Project layout
+
+- `examples/agent_examples/` — training/probe/analysis scripts (below) and their `results_sim*/` output.
+- `Useful_info/` — this documentation, plus `tem_step_trace/` (an interactive walkthrough of one TEM forward step).
+- `experiments/` — reserved for upcoming experiment work (empty as of 2026-08-13; not yet wired into any script). Update this note once it has real contents.
+
+---
+
 ## Scripts
 
 ### 0. `run_full_experiment.py` — Run everything in one command

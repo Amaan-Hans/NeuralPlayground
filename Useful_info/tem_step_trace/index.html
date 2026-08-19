@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>TEM: One Step Traced</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <p class="eyebrow">whittington_2020_model.py · Model.iteration()</p>
+    <h1>Tracing one step through vanilla TEM</h1>
+    <p class="dek">
+      One call to <code>iteration()</code> — everything that happens for a single
+      environment step. A training rollout calls this <strong>n_rollout = 20</strong>
+      times before one gradient update; a 5000-episode run calls it on the order of
+      100,000 times. This page freezes just one of those calls and walks through it.
+      No value mechanism here — this is plain TEM, the substrate TEM-R builds on.
+    </p>
+    <div class="legend" id="legend">
+      <span class="legend-item"><span class="legend-swatch phase-start"></span>Inputs</span>
+      <span class="legend-item"><span class="legend-swatch phase-transition"></span>Transition (shared)</span>
+      <span class="legend-item"><span class="legend-swatch phase-inference"></span>Inference (bottom-up)</span>
+      <span class="legend-item"><span class="legend-swatch phase-generative"></span>Generative (top-down)</span>
+      <span class="legend-item"><span class="legend-swatch phase-memory"></span>Memory update</span>
+      <span class="legend-item"><span class="legend-swatch phase-loss"></span>Loss</span>
+    </div>
+  </header>
+
+  <div class="rail-shell">
+    <div class="rail" id="rail" aria-label="Step sequence"></div>
+  </div>
+
+  <section class="panel" aria-live="polite">
+    <div class="panel-head">
+      <span class="badge" id="phase-badge"></span>
+      <span id="step-counter"></span>
+    </div>
+    <h2 id="stage-title"></h2>
+    <code id="stage-fn"></code>
+
+    <div class="io-grid">
+      <div class="io-col">
+        <h2>Inputs</h2>
+        <ul id="inputs-list"></ul>
+      </div>
+      <div class="io-col">
+        <h2>Outputs</h2>
+        <ul id="outputs-list"></ul>
+      </div>
+    </div>
+
+    <p id="stage-text"></p>
+
+    <div class="controls">
+      <button class="nav" id="prev-btn" type="button">← Previous</button>
+      <span class="hint">← / → also works</span>
+      <button class="nav" id="next-btn" type="button">Next →</button>
+    </div>
+  </section>
+
+  <footer>
+    Source: <code>neuralplayground/agents/whittington_2020_extras/whittington_2020_model.py</code>.
+    Shapes use default hyperparameters from <code>whittington_2020_parameters.py</code>
+    (n_x=45, n_x_c=10, n_f=5, n_g=[30,30,24,18,18], n_p=[100,100,80,60,60]).
+    For the TEM-R value-augmentation, see <code>experiment_changes.md</code> in this
+    same folder — it adds exactly one line inside the <em>Inference</em> phase,
+    right after the <code>f_c</code> step here.
+  </footer>
+
+</div>
+<script src="script.js"></script>
+</body>
+</html>
