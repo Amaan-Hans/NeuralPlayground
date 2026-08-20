@@ -345,6 +345,7 @@ if __name__ == "__main__":
         pa.LOOP_START_EPISODE = N_PHASE1_EPISODES
         os.makedirs(pa.OUT_DIR, exist_ok=True)
         pa.plot_population_activity_maps()
+        pa.plot_landmark_activity_heatmap()
         pa.plot_value_correlation()
         pa.plot_peak_distance()
         pa.plot_grid_scores()

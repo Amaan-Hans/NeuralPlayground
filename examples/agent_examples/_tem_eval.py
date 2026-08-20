@@ -159,6 +159,12 @@ def run_eval(agent, env, episode: int, eval_save_path: str):
     p_rates = _average_second_half(p_accum, n_p_list)
     g_rates = _average_second_half(g_accum, n_g_list)
 
+    # Visit count per state within this eval window - same for every f since
+    # accum[f][loc] gets exactly one append per step regardless of frequency
+    # (see the accumulation loop above), so f=0's list lengths already give
+    # the per-state visit count.
+    visit_counts = np.array([len(p_accum[0][loc]) for loc in range(n_states)], dtype=np.int64)
+
     # ── Save raw arrays for post-hoc predictive-coding analysis ───────────────
     # p_rates: list of n_f arrays, each (n_states, n_cells_f)
     # Concatenate across frequencies -> (n_states, total_p_cells)
@@ -168,6 +174,23 @@ def run_eval(agent, env, episode: int, eval_save_path: str):
     g_all = np.concatenate(g_rates, axis=1)
     np.save(os.path.join(ep_dir, "g_rates.npy"), g_all)
 
+    np.save(os.path.join(ep_dir, "visit_counts.npy"), visit_counts)
+
+    # Landmark id -> state id mapping. Landmarks (object ids [0, n_landmarks))
+    # are enabled for BOTH conditions (see discritized_objects.py), each
+    # placed at exactly one state per environment, so this is meaningful
+    # regardless of agent.use_reward - it's what lets post-hoc analysis plot
+    # "activity/visits at each value-carrying position" for baseline too, as
+    # a control against the reward_modulated condition.
+    object_layout = env.environments[0].objects  # (n_states, n_objects) one-hot
+    object_ids_per_state = np.argmax(object_layout, axis=1)
+    landmark_states = np.full(agent.n_landmarks, -1, dtype=np.int64)
+    for sid in range(n_states):
+        obj_id = int(object_ids_per_state[sid])
+        if obj_id < agent.n_landmarks:
+            landmark_states[obj_id] = sid
+    np.save(os.path.join(ep_dir, "landmark_states.npy"), landmark_states)
+
     if agent.use_reward and agent.td is not None:
         # V is keyed by landmark identity (agent.td.V[0] has shape
         # (n_landmarks,)), not by state. Each landmark occupies exactly one
@@ -176,8 +199,6 @@ def run_eval(agent, env, episode: int, eval_save_path: str):
         # state has no fixed value of its own (its "context" while passing
         # through is whatever landmark was last held, which is path-
         # dependent) and is left as NaN rather than implying a value of 0.
-        object_layout = env.environments[0].objects  # (n_states, n_objects) one-hot
-        object_ids_per_state = np.argmax(object_layout, axis=1)
         v_per_state = np.full(n_states, np.nan, dtype=np.float32)
         for sid in range(n_states):
             obj_id = int(object_ids_per_state[sid])

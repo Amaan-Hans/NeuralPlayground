@@ -114,6 +114,28 @@ def _load_v_table(ep_path):
     return np.load(fpath)
 
 
+def _load_visit_counts(ep_path):
+    """Load visit_counts.npy -> (N_STATES,) int, or None. Saved by _tem_eval.py
+    going forward only - older checkpoints written before that change won't
+    have this file.
+    """
+    fpath = os.path.join(ep_path, "visit_counts.npy")
+    if not os.path.exists(fpath):
+        return None
+    return np.load(fpath)
+
+
+def _load_landmark_states(ep_path):
+    """Load landmark_states.npy -> (n_landmarks,) state id per landmark
+    (-1 if unplaced), or None. Same caveat as _load_visit_counts: only
+    present in checkpoints written after that change landed.
+    """
+    fpath = os.path.join(ep_path, "landmark_states.npy")
+    if not os.path.exists(fpath):
+        return None
+    return np.load(fpath)
+
+
 # ── Analysis 1: Population activity map ───────────────────────────────────────
 
 def plot_population_activity_maps():
@@ -166,6 +188,101 @@ def plot_population_activity_maps():
 
         fig.tight_layout()
         fname = os.path.join(OUT_DIR, f"population_activity_{label}.png")
+        fig.savefig(fname, dpi=150)
+        plt.close(fig)
+        print(f"Saved: {fname}")
+
+
+# ── Analysis 1b: Landmark (value-carrying position) activity vs visits ────────
+
+def plot_landmark_activity_heatmap():
+    """One row per landmark ("value-carrying position"), one column per
+    training-episode checkpoint. Colour = mean place-cell activity at that
+    landmark's state at that checkpoint (same convention as the population
+    activity map); each cell is annotated with the visit count for that
+    state within the eval window, so you can see whether place fields are
+    actually firing when the agent is there vs. just not visiting often
+    enough to tell. Produced for both conditions - landmarks are enabled
+    unconditionally (see discritized_objects.py), so baseline serves as a
+    control against reward_modulated.
+
+    Requires visit_counts.npy / landmark_states.npy, which _tem_eval.py only
+    started saving going forward - checkpoints from before that change are
+    silently skipped (episode dropped from the plot, condition skipped
+    entirely if none have it).
+    """
+    for label, plots_dir in [("baseline", BASELINE_DIR), ("reward_modulated", REWARD_DIR)]:
+        eps = _episode_dirs(plots_dir)
+        if not eps:
+            print(f"No episode folders found in {plots_dir}")
+            continue
+
+        landmark_states = None
+        for _, ep_path in eps:
+            landmark_states = _load_landmark_states(ep_path)
+            if landmark_states is not None:
+                break
+        if landmark_states is None:
+            print(f"[{label}] No landmark_states.npy found in any checkpoint — skipping landmark activity heatmap.")
+            continue
+        n_landmarks = len(landmark_states)
+
+        ep_list = []
+        activity_cols, count_cols = [], []
+        for ep, ep_path in eps:
+            p = _load_p_rates(ep_path)
+            counts = _load_visit_counts(ep_path)
+            if p is None or counts is None:
+                continue
+            mean_act = p.mean(axis=1)                       # (N_STATES,)
+            act_col = np.full(n_landmarks, np.nan)
+            count_col = np.zeros(n_landmarks, dtype=np.int64)
+            for i, sid in enumerate(landmark_states):
+                if sid < 0:
+                    continue
+                act_col[i] = mean_act[sid]
+                count_col[i] = counts[sid]
+            ep_list.append(ep)
+            activity_cols.append(act_col)
+            count_cols.append(count_col)
+
+        if not ep_list:
+            print(f"[{label}] No checkpoints with visit_counts.npy — skipping landmark activity heatmap.")
+            continue
+
+        activity = np.stack(activity_cols, axis=1)   # (n_landmarks, n_episodes)
+        counts = np.stack(count_cols, axis=1)         # (n_landmarks, n_episodes)
+
+        fig_h = max(3, 0.4 * n_landmarks + 1)
+        fig_w = max(6, 0.9 * len(ep_list) + 2)
+        fig, ax = plt.subplots(figsize=(fig_w, fig_h))
+        vmax = np.nanmax(activity) if np.isfinite(activity).any() else 1.0
+        im = ax.imshow(activity, origin="upper", cmap="hot", aspect="auto",
+                       vmin=0, vmax=vmax if vmax > 0 else 1.0)
+
+        for i in range(n_landmarks):
+            for j in range(len(ep_list)):
+                if not np.isfinite(activity[i, j]):
+                    continue
+                # Light text on dark cells, dark text on light cells (hot colormap).
+                text_color = "black" if activity[i, j] > 0.6 * vmax else "white"
+                ax.text(j, i, str(int(counts[i, j])), ha="center", va="center",
+                        fontsize=7, color=text_color)
+
+        ax.set_xticks(range(len(ep_list)))
+        ax.set_xticklabels(ep_list, fontsize=8, rotation=45, ha="right")
+        ax.set_yticks(range(n_landmarks))
+        ax.set_yticklabels([f"Landmark {i}" for i in range(n_landmarks)], fontsize=8)
+        ax.set_xlabel("Episode")
+        ax.set_title(
+            f"Landmark activity vs visits — {label}\n"
+            f"colour = mean place-cell activity at landmark's state; "
+            f"numbers = visit count in eval window"
+        )
+        cbar = fig.colorbar(im, ax=ax)
+        cbar.set_label("mean place-cell activity")
+        fig.tight_layout()
+        fname = os.path.join(OUT_DIR, f"landmark_activity_{label}.png")
         fig.savefig(fname, dpi=150)
         plt.close(fig)
         print(f"Saved: {fname}")
@@ -700,6 +817,7 @@ def plot_reward_zone_enrichment(zone_radius=ZONE_RADIUS, n_shuffles=N_SHUFFLES,
 if __name__ == "__main__":
     print("Running predictive-coding analysis...")
     plot_population_activity_maps()
+    plot_landmark_activity_heatmap()
     plot_value_correlation()
     plot_peak_distance()
     plot_grid_scores()
