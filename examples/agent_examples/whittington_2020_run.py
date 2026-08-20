@@ -34,12 +34,13 @@ from neuralplayground.backend import SingleSim, tem_training_loop
 from neuralplayground.experiments import Sargolini2006Data
 
 # ── Experiment flags ───────────────────────────────────────────────────────────
-# Env-var overrides (TEM_USE_REWARD / TEM_TEST_MODE) let run_full_experiment.py
-# drive both conditions from one script without editing this file; manual edits
+# Env-var overrides (TEM_USE_REWARD / TEM_TEST_MODE / TEM_SEED / TEM_SAVE_ROOT)
+# let run_full_experiment.py drive both conditions, a chosen seed, and a
+# chosen output root from one script without editing this file; manual edits
 # of the literals below still work for one-off interactive runs.
 USE_REWARD          = os.environ.get("TEM_USE_REWARD", "0") == "1"      # False = baseline, True = TEM-R (V(landmark) written into x_c's value dim)
 TEST_MODE           = os.environ.get("TEM_TEST_MODE", "0") == "1"     # True = 10-episode smoke test (quick sanity check)
-TRAJECTORY_SEED     = 123         # Fixed seed — keep identical across conditions
+TRAJECTORY_SEED     = int(os.environ.get("TEM_SEED", "123"))  # Fixed seed — keep identical across conditions
 REWARD_LOCATION     = [3.0, 3.0]  # Reward site; inside all environment bounds
 TD_ALPHA            = 0.1         # Tabular value-table learning rate
 TD_GAMMA            = 0.95         # TD discount factor
@@ -47,10 +48,14 @@ N_LANDMARKS         = 10          # Unique, never-duplicated landmark objects pe
 LANDMARK_BIAS_SCALE = 2.0         # Exponential length scale (arena units) biasing landmarks toward REWARD_LOCATION; larger = weaker bias
 # ──────────────────────────────────────────────────────────────────────────────
 
+# Overrides the default results_sim<suffix>/ root when set by
+# run_full_experiment.py, e.g. to write into experiments/random/seed_<N>/.
+_SAVE_ROOT = os.environ.get("TEM_SAVE_ROOT")
+
 _condition = "reward_modulated" if USE_REWARD else "baseline"
 simulation_id = f"TEM_{_condition}_sim"
 _results_root = "results_sim_test" if TEST_MODE else "results_sim"
-save_path = os.path.join(os.getcwd(), _results_root, _condition)
+save_path = os.path.join(_SAVE_ROOT, _condition) if _SAVE_ROOT else os.path.join(os.getcwd(), _results_root, _condition)
 agent_class = Whittington2020
 env_class = BatchEnvironment
 training_loop = tem_training_loop

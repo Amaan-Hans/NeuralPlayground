@@ -76,3 +76,4 @@ examples/agent_examples/results_sim_test/baseline/
 examples/agent_examples/results_sim_test/reward_modulated/
 examples/agent_examples/examples.lnk
 experiments/
+examples/agent_examples/loop_seed42_run.log

@@ -136,8 +136,11 @@ def tem_training_loop(agent: AgentCore, env: Environment, n_episode: int, params
             actions = agent.batch_act(obs)
             obs, state, reward = env.step(actions, normalize_step=True)
         agent.update()
-        # Periodic evaluation: save plots and raw arrays every eval_interval episodes.
-        if eval_fn is not None and (i + 1) % eval_interval == 0:
+        # Periodic evaluation: save plots and raw arrays every eval_interval
+        # episodes, plus always at episode 1 (i == 0) so training-progress
+        # plots have a checkpoint at the very start, not just from
+        # eval_interval onward.
+        if eval_fn is not None and ((i + 1) % eval_interval == 0 or i == 0):
             eval_fn(agent, env, i + 1, eval_save_path)
     return agent, env, training_dict
 
