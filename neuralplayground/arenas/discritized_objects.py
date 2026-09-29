@@ -110,6 +110,18 @@ class DiscreteObjectEnvironment(Environment):
         # closer to reward_location. n_landmarks=0 (default) reproduces the
         # original fully-random-with-replacement layout exactly.
         self.n_landmarks = env_kwargs.get("n_landmarks", 0)
+        # Control landmarks: object ids [n_landmarks, n_landmarks +
+        # n_control_landmarks) - placed with the exact same never-duplicated,
+        # reward-biased sampling as value landmarks (see generate_objects),
+        # so they're sensorily identical in kind. The only difference is
+        # they sit OUTSIDE the agent's own n_landmarks range, so the
+        # existing held_landmark/TD gating (`obj_id < self.n_landmarks` in
+        # Whittington2020.batch_act) never picks them up - their value is
+        # never tracked or updated. Purpose: give the network (and any
+        # downstream decoder trained on place-cell activity) more spatially
+        # unique sensory anchors than the 10 value landmarks alone provide,
+        # without touching the value-learning signal at all.
+        self.n_control_landmarks = env_kwargs.get("n_control_landmarks", 0)
         self.reward_location = env_kwargs.get("reward_location", None)
         self.landmark_bias_scale = env_kwargs.get("landmark_bias_scale", 2.0)
         # Optional explicit landmark placement: list of (x, y) positions, one
@@ -120,6 +132,15 @@ class DiscreteObjectEnvironment(Environment):
         # remaining ids still use the biased random sampling, restricted to
         # states not already claimed by an explicit position.
         self.landmark_positions = env_kwargs.get("landmark_positions", None)
+        # Optional fixed decoy object id: when set (and n_landmarks > 0),
+        # every remaining state (not a value landmark, not a control
+        # landmark) is tiled with this single object id instead of a random
+        # one, so the ONLY informative sensory observations are the value
+        # and control landmarks - every other state is indistinguishable
+        # "wallpaper". Must lie outside [0, n_landmarks + n_control_landmarks).
+        # None (default) reproduces the original per-state-random decoy
+        # layout.
+        self.decoy_object_id = env_kwargs.get("decoy_object_id", None)
         self.arena_limits = np.array(
             [
                 [self.arena_x_limits[0], self.arena_x_limits[1]],
@@ -292,17 +313,27 @@ class DiscreteObjectEnvironment(Environment):
 
         If ``self.n_landmarks > 0``, object ids ``[0, n_landmarks)`` are each
         placed at exactly one state (never duplicated within this
-        environment). If ``self.landmark_positions`` is set, the first
-        ``len(landmark_positions)`` landmark ids are placed at exactly those
-        states, in order (id 0 at ``landmark_positions[0]``, etc.) - e.g. a
-        fixed trajectory's states, so those landmarks are guaranteed to be
-        "on the way" along that path rather than merely biased toward it.
-        Any remaining landmark ids (or all of them, if ``landmark_positions``
-        is not set) are sampled without replacement from the rest of the
-        states, weighted toward states closer to ``self.reward_location`` (if
-        set). The remaining ``n_objects - n_landmarks`` ids are distributed
-        across all other states exactly as before: uniform random, with
-        replacement.
+        environment) - "value landmarks", tracked by the agent's
+        held_landmark/TD mechanism. If ``self.n_control_landmarks > 0``,
+        object ids ``[n_landmarks, n_landmarks + n_control_landmarks)`` are
+        ALSO each placed at exactly one state, via the exact same
+        never-duplicated, reward-biased sampling - "control landmarks",
+        sensorily identical in kind to value landmarks but outside the
+        agent's own ``n_landmarks`` range, so they're never picked up by
+        held_landmark/TD (see Whittington2020.batch_act) - their appearance
+        never affects or is affected by the learned value.
+
+        If ``self.landmark_positions`` is set, the first
+        ``len(landmark_positions)`` VALUE landmark ids are placed at exactly
+        those states, in order (id 0 at ``landmark_positions[0]``, etc.) -
+        e.g. states along a fixed trajectory ("landmarks on the way to the
+        reward"). Any remaining value + control landmark ids are sampled
+        without replacement from the rest of the states, weighted toward
+        states closer to ``self.reward_location`` (if set). The remaining
+        ``n_objects - n_landmarks - n_control_landmarks`` ids are
+        distributed across all other states exactly as before: uniform
+        random, with replacement (or the fixed ``self.decoy_object_id`` if
+        set).
 
         Returns
         -------
@@ -317,7 +348,8 @@ class DiscreteObjectEnvironment(Environment):
                     poss_objects[i][j] = 1
         objects = np.zeros(shape=(self.n_states, self.n_objects))
 
-        if self.n_landmarks > 0:
+        n_special = self.n_landmarks + self.n_control_landmarks
+        if n_special > 0:
             explicit_states = []
             if self.landmark_positions:
                 for pos in self.landmark_positions[: self.n_landmarks]:
@@ -330,8 +362,8 @@ class DiscreteObjectEnvironment(Environment):
                         )
                     explicit_states.append(state_id)
 
-            n_remaining = self.n_landmarks - len(explicit_states)
-            remaining_landmark_states = []
+            n_remaining = n_special - len(explicit_states)
+            remaining_special_states = []
             if n_remaining > 0:
                 candidate_states = [
                     s for s in range(self.n_states) if s not in set(explicit_states)
@@ -342,17 +374,29 @@ class DiscreteObjectEnvironment(Environment):
                     weights = np.exp(-dist / self.landmark_bias_scale)
                 else:
                     weights = np.ones(len(candidate_states))
-                remaining_landmark_states = self._weighted_sample_without_replacement(
+                remaining_special_states = self._weighted_sample_without_replacement(
                     candidate_states, weights.tolist(), n_remaining
                 )
 
-            landmark_states = explicit_states + remaining_landmark_states
-            decoy_states = [s for s in range(self.n_states) if s not in set(landmark_states)]
-            for landmark_id, state_id in enumerate(landmark_states):
-                objects[state_id, :] = poss_objects[landmark_id]
-            for state_id in decoy_states:
-                rand = random.randint(self.n_landmarks, self.n_objects - 1)
-                objects[state_id, :] = poss_objects[rand]
+            # explicit_states fill value-landmark ids first (as before);
+            # remaining_special_states then fill whatever value-landmark ids
+            # are left, followed by all control-landmark ids - same combined
+            # weighted-without-replacement draw as before for the value-only
+            # case (drawing the first k of a longer without-replacement
+            # sequence from the same weighted pool is statistically
+            # identical to drawing k directly), so value-landmark placement
+            # statistics are unchanged when n_control_landmarks == 0.
+            special_states = explicit_states + remaining_special_states
+            decoy_states = [s for s in range(self.n_states) if s not in set(special_states)]
+            for special_id, state_id in enumerate(special_states):
+                objects[state_id, :] = poss_objects[special_id]
+            if self.decoy_object_id is not None:
+                for state_id in decoy_states:
+                    objects[state_id, :] = poss_objects[self.decoy_object_id]
+            else:
+                for state_id in decoy_states:
+                    rand = random.randint(n_special, self.n_objects - 1)
+                    objects[state_id, :] = poss_objects[rand]
         else:
             # Generate landscape of objects in each environment
             for i in range(self.n_states):
