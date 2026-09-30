@@ -97,8 +97,16 @@ def main():
         help="Skip the post-hoc analysis after the two training runs.",
     )
     parser.add_argument(
+        "--no-vary-arena-size", action="store_true",
+        help="Use one uniform arena size (--arena-side) for all 16 batch slots instead of the "
+             "historical 8x8/10x10/12x12-repeating mix (which is ON by default - matches the "
+             "original NeuralPlayground environment-size diversity). Useful when you want size "
+             "held constant as a single controlled variable.",
+    )
+    parser.add_argument(
         "--arena-side", type=float, default=10.0,
-        help="Square arena side length shared by all 16 batch slots -> n_states = side**2 (default: 10, i.e. 100 states).",
+        help="Square arena side length shared by all 16 batch slots -> n_states = side**2 "
+             "(default: 10, i.e. 100 states). Only used with --no-vary-arena-size.",
     )
     parser.add_argument(
         "--no-rotate", action="store_true",
@@ -141,6 +149,7 @@ def main():
         "TEM_TEST_MODE": test_flag,
         "TEM_SEED": str(args.seed),
         "TEM_SAVE_ROOT": save_root,
+        "TEM_VARY_ARENA_SIZE": "0" if args.no_vary_arena_size else "1",
         "TEM_ARENA_SIDE": str(args.arena_side),
         "TEM_ROTATE_ENVIRONMENTS": "0" if args.no_rotate else "1",
         "TEM_N_CONTROL_LANDMARKS": str(args.n_control_landmarks),
@@ -177,18 +186,22 @@ def main():
         pa.REWARD_DIR = reward_plots
         pa.OUT_DIR = os.path.join(save_root, "predictive_analysis")
         os.makedirs(pa.OUT_DIR, exist_ok=True)
-        # whittington_2020_run.py derives reward_location as
-        # [arena_side * 0.2, arena_side * 0.2] - every module-level geometry
-        # global in tem_predictive_analysis.py (ROOM_W/ROOM_D/XY/N_STATES/
-        # DIST_TO_REWARD) is derived at import time from the historical
-        # 10x10/[3,3] default, so it MUST be reconfigured whenever
-        # --arena-side isn't that default.
-        _side = int(args.arena_side)
-        _reward_frac = 0.2
-        pa.configure_geometry(
-            room_w=_side, room_d=_side,
-            reward_location=[args.arena_side * _reward_frac, args.arena_side * _reward_frac],
-        )
+        # Every module-level geometry global in tem_predictive_analysis.py
+        # (ROOM_W/ROOM_D/XY/N_STATES/DIST_TO_REWARD) is derived at import time
+        # from the historical 10x10/[3,3] default, so it must be reconfigured
+        # whenever training didn't actually use that. Analysis only ever
+        # looks at env 0, so what matters here is specifically env 0's size.
+        if args.no_vary_arena_size:
+            _side = int(args.arena_side)
+            _reward_frac = 0.2
+            pa.configure_geometry(
+                room_w=_side, room_d=_side,
+                reward_location=[args.arena_side * _reward_frac, args.arena_side * _reward_frac],
+            )
+        else:
+            # whittington_2020_run.py's VARY_ARENA_SIZE cycle is [10, 8, 10, 12];
+            # env 0 (index 0 in the cycle) is always size 10, reward fixed at [3, 3].
+            pa.configure_geometry(room_w=10, room_d=10, reward_location=[3.0, 3.0])
         pa.plot_population_activity_maps()
         pa.plot_landmark_activity_heatmap()
         pa.plot_value_correlation()

@@ -74,6 +74,7 @@ def build_env_overrides(seed: int, condition: str, args: argparse.Namespace) -> 
         "TEM_SEED": str(seed),
         "TEM_SAVE_ROOT": save_root,
         "TEM_USE_REWARD": "1" if condition == "reward_modulated" else "0",
+        "TEM_VARY_ARENA_SIZE": "0" if args.no_vary_arena_size else "1",
         "TEM_ARENA_SIDE": str(args.arena_side),
         "TEM_ROTATE_ENVIRONMENTS": "0" if args.no_rotate else "1",
         "TEM_N_CONTROL_LANDMARKS": str(args.n_control_landmarks),
@@ -102,7 +103,13 @@ def main():
              "tests. Blocks until every job finishes; a real Slurm submission returns immediately.",
     )
     parser.add_argument("--test", action="store_true", help="10-episode smoke test.")
-    parser.add_argument("--arena-side", type=float, default=10.0)
+    parser.add_argument(
+        "--no-vary-arena-size", action="store_true",
+        help="Use one uniform arena size (--arena-side) for all 16 batch slots instead of the "
+             "historical 8x8/10x10/12x12-repeating mix (ON by default).",
+    )
+    parser.add_argument("--arena-side", type=float, default=10.0,
+                         help="Only used with --no-vary-arena-size.")
     parser.add_argument("--no-rotate", action="store_true")
     parser.add_argument("--n-control-landmarks", type=int, default=10)
     parser.add_argument("--decoy-object-id", type=int, default=30)

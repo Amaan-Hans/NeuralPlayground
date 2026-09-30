@@ -12,11 +12,18 @@ consolidated with everything learned from the size/rotation audit:
   checkpoints — that assumption breaks under rotation, since env 0 may have
   rotated to a fresh layout between any two checkpoints. Set
   ROTATE_ENVIRONMENTS=0 if you need that assumption to hold.
-- ARENA_SIDE (default 10, i.e. 100 states/env): all 16 batch slots use a
-  single square size instead of the historical 8x8/10x10/12x12 mix, so
-  environment "difficulty" is an explicit, controllable variable. The
-  original torch_tem reference config used 5x5 (25 states); NeuralPlayground
-  historically defaulted to a 64-144 state mix (average ~100).
+- VARY_ARENA_SIZE (default True): reproduces NeuralPlayground's original
+  8x8/10x10/12x12-repeating mix across the 16 batch slots (average ~103.5
+  states/env) instead of one uniform size - this is the "normal"/historical
+  environment-size diversity, independent of ROTATE_ENVIRONMENTS's object-
+  layout diversity. Set to "0" (or set ARENA_SIDE) for a single uniform
+  square size across all slots instead - useful when you specifically want
+  environment size held constant as a controlled variable (e.g. the
+  size/rotation audit this session ran used ARENA_SIDE=5 or 10 uniformly,
+  to isolate size as one variable at a time). The original torch_tem
+  reference config used 5x5 (25 states) uniformly.
+- ARENA_SIDE (default 10, i.e. 100 states/env): only used when
+  VARY_ARENA_SIZE=0 - all batch slots then use this single square size.
 - N_CONTROL_LANDMARKS / DECOY_OBJECT_ID: extra environment structure (see
   DiscreteObjectEnvironment.generate_objects docstring) — defaults (10, 30)
   match the config the cluster runs actually used: 10 more never-duplicated,
@@ -74,7 +81,8 @@ N_CONTROL_LANDMARKS = int(os.environ.get("TEM_N_CONTROL_LANDMARKS", "10"))
 _decoy_env          = os.environ.get("TEM_DECOY_OBJECT_ID", "30")      # "" (empty) = original random decoys
 DECOY_OBJECT_ID     = int(_decoy_env) if _decoy_env != "" else None
 LANDMARK_BIAS_SCALE = 2.0
-ARENA_SIDE          = float(os.environ.get("TEM_ARENA_SIDE", "10"))    # side length -> n_states = ARENA_SIDE**2
+VARY_ARENA_SIZE     = os.environ.get("TEM_VARY_ARENA_SIZE", "1") == "1"  # historical 8/10/12-mix vs uniform
+ARENA_SIDE          = float(os.environ.get("TEM_ARENA_SIDE", "10"))    # only used when VARY_ARENA_SIZE=0
 ROTATE_ENVIRONMENTS = os.environ.get("TEM_ROTATE_ENVIRONMENTS", "1") == "1"
 BATCH_SIZE          = int(os.environ.get("TEM_BATCH_SIZE", "16"))
 SAVE_MULTIENV_CSV   = os.environ.get("TEM_SAVE_MULTIENV_CSV", "1") == "1"  # all-envs place-cell CSV per checkpoint
@@ -87,7 +95,12 @@ if SAVE_MULTIENV_CSV:
 else:
     from _tem_eval import run_eval
 
-REWARD_LOCATION = [ARENA_SIDE * REWARD_LOCATION_FRAC, ARENA_SIDE * REWARD_LOCATION_FRAC]
+if VARY_ARENA_SIZE:
+    # Original NeuralPlayground default: fixed physical coordinate, chosen to
+    # fit inside even the smallest arena in the mix (8x8, bounds [-4, 4]).
+    REWARD_LOCATION = [3.0, 3.0]
+else:
+    REWARD_LOCATION = [ARENA_SIDE * REWARD_LOCATION_FRAC, ARENA_SIDE * REWARD_LOCATION_FRAC]
 
 # Overrides the default results_sim<suffix>/ root when set by
 # run_full_experiment.py, e.g. to write into experiments/random/seed_<N>/.
@@ -125,9 +138,17 @@ full_agent_params = params.copy()
 # an identical network width; only whether that dimension is ever set to a
 # nonzero value differs, via agent_params["use_reward"] below).
 
-_half = ARENA_SIDE / 2
-arena_x_limits = [[-_half, _half]] * BATCH_SIZE
-arena_y_limits = [[-_half, _half]] * BATCH_SIZE
+if VARY_ARENA_SIZE:
+    # Historical NeuralPlayground mix: repeats every 4 slots, average ~103.5
+    # states/env (64, 100, or 144 depending on position in the cycle).
+    _size_cycle = [10, 8, 10, 12]
+    _half_cycle = [[-s / 2, s / 2] for s in _size_cycle]
+    arena_x_limits = [_half_cycle[i % len(_half_cycle)] for i in range(BATCH_SIZE)]
+    arena_y_limits = [_half_cycle[i % len(_half_cycle)] for i in range(BATCH_SIZE)]
+else:
+    _half = ARENA_SIDE / 2
+    arena_x_limits = [[-_half, _half]] * BATCH_SIZE
+    arena_y_limits = [[-_half, _half]] * BATCH_SIZE
 
 room_widths = [x[1] - x[0] for x in arena_x_limits]
 room_depths = [y[1] - y[0] for y in arena_y_limits]
@@ -197,10 +218,15 @@ sim = SingleSim(
 )
 
 if __name__ == "__main__":
+    _size_desc = (
+        f"varying ({sorted(set(w[1] - w[0] for w in arena_x_limits))} state-widths, "
+        f"n_states={sorted(set(int((w[1]-w[0])**2) for w in arena_x_limits))})"
+        if VARY_ARENA_SIZE
+        else f"uniform arena_side={ARENA_SIDE} (n_states={int(ARENA_SIDE) ** 2})"
+    )
     print(
-        f"Running sim... condition={_condition} arena_side={ARENA_SIDE} "
-        f"(n_states={int(ARENA_SIDE) ** 2}) n_episode={_n_episode} "
-        f"rotate_environments={ROTATE_ENVIRONMENTS} "
+        f"Running sim... condition={_condition} size={_size_desc} "
+        f"n_episode={_n_episode} rotate_environments={ROTATE_ENVIRONMENTS} "
         f"n_control_landmarks={N_CONTROL_LANDMARKS} decoy_object_id={DECOY_OBJECT_ID}"
     )
     sim.run_sim(save_path)
