@@ -190,6 +190,19 @@ def tem_training_loop(agent: AgentCore, env: Environment, n_episode: int, params
                     obs[j] = new_obs
                     agent.visited[j] = [False for _ in range(agent.n_states[j])]
                     agent.held_landmark[j] = None
+                    # Mark the timestamp of this rotation so eval code can
+                    # truncate its trailing window to never reach back into
+                    # slot j's previous (different) environment layout.
+                    agent.last_rotation_step[j] = len(agent.obs_history)
+                    if agent.use_reward and agent.td is not None:
+                        # V[j] is keyed by landmark id (0..n_landmarks-1), which
+                        # is only a meaningful proxy for "context/place" within
+                        # THIS environment instance's own landmark layout - a
+                        # fresh rotation reshuffles which physical state each
+                        # landmark id sits at, so carrying the old values over
+                        # would inject stale, now-arbitrary value beliefs into
+                        # the sensory stream until TD overwrites them again.
+                        agent.td.reset_env(j)
                     # Signal the model: slot j's next chunk starts a brand-new
                     # walk - Model.init_walks() (called at the top of the next
                     # forward()) resets M[j], g_inf[j], x_inf[j] to fresh

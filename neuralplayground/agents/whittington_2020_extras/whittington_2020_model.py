@@ -37,10 +37,21 @@ class Model(torch.nn.Module):
         self.hyper = copy.deepcopy(params)
         # Create trainable parameters
         self.init_trainable()
-        # Move any plain tensors in hyper dict to device
+        # Move any plain tensors in hyper dict to device - including LISTS of
+        # tensors (W_tile, W_repeat, g_downsample, p_retrieve_mask_inf/gen,
+        # two_hot_table are all one-tensor-per-frequency-module lists, not a
+        # bare tensor, so a plain isinstance(v, torch.Tensor) check silently
+        # skips them). Without this, they stay on CPU permanently and every
+        # site that uses them (x2x_, g2g_, gen_p, gen_x, attractor, f_c, ...)
+        # re-copies them to the GPU with its own inline .to(device) call on
+        # EVERY forward step of EVERY episode, for the whole training run -
+        # correct (results are the same) but wastefully repeated work. Doing
+        # it once here means those .to(device) calls become true no-ops.
         for k, v in self.hyper.items():
             if isinstance(v, torch.Tensor):
                 self.hyper[k] = v.to(self.device)
+            elif isinstance(v, list) and v and all(isinstance(item, torch.Tensor) for item in v):
+                self.hyper[k] = [item.to(self.device) for item in v]
 
     def forward(self, walk, prev_iter=None, prev_M=None):
         """Forward pass of TEM model. This consists of a transition, followed
@@ -1550,7 +1561,7 @@ class Model(torch.nn.Module):
         # Multiply by connection vector, e.g. only keeping weights from low to high
         # frequencies for hierarchical retrieval
         if do_hierarchical_connections:
-            M_new = M_new * torch.tensor(self.hyper["p_update_mask"], device=M_new.device)
+            M_new = M_new * self.hyper["p_update_mask"]
         # Scale eta by ReLU(td_error) when provided (LC-inspired reward modulation).
         # td_scale has shape (batch_size,); reshape to (batch_size,1,1) for broadcasting.
         eta = torch.tensor(self.hyper["eta"], device=M_new.device)

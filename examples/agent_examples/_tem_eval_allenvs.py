@@ -134,8 +134,19 @@ def _compute_multienv_rates_chunked(agent, env, window_steps=EVAL_STEPS, chunk_s
 
             forward = agent.tem(model_input, prev_iter=prev_iter)
 
-            for step in forward:
+            # Per-env rotation timestamps (see tem_training_loop's
+            # rotate_environments option): a step older than a given env's
+            # last rotation belongs to that env's PREVIOUS (different)
+            # environment layout, so it must not be averaged together with
+            # post-rotation steps for the same state id. getattr() keeps
+            # this backward-compatible with agents saved before
+            # last_rotation_step existed (treated as "never rotated").
+            rotation_steps = getattr(agent, "last_rotation_step", [0] * n_envs)
+            for local_i, step in enumerate(forward):
+                global_idx = chunk_held_idx[local_i]
                 for j in range(n_envs):
+                    if global_idx < rotation_steps[j]:
+                        continue
                     loc = step.g[j]["id"]
                     if loc < 0:
                         continue

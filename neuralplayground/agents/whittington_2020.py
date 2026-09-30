@@ -211,6 +211,16 @@ class Whittington2020(AgentCore):
         # AT obs_history[i], i.e. before that step's transition is processed.
         self.held_landmark = [None] * self.batch_size
         self.held_landmark_history = []
+        # Global obs_history index at which each env slot's CURRENT
+        # environment instance became active - 0 until rotation ever touches
+        # that slot (i.e. "since the beginning"). Set by
+        # tem_training_loop's rotate_environments block on every rotation;
+        # read by eval code (_tem_eval.py / _tem_eval_allenvs.py) so a
+        # trailing analysis window can be truncated to never reach back
+        # before a slot's most recent rotation - otherwise a window could
+        # silently average together two different environments' layouts
+        # for the same state id.
+        self.last_rotation_step = [0] * self.batch_size
 
     def _compute_reward_state_ids(self):
         """Find the state index nearest to reward_location for each environment."""

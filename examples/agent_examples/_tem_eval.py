@@ -39,7 +39,17 @@ import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 
 FREQ_NAMES = ["Theta", "Delta", "Beta", "Gamma", "High_Gamma"]
-EVAL_STEPS = 500   # history window used for rate maps
+# History window used for rate maps. Deliberately equal to the default
+# params["walk_it_min"] (25 episodes) * params["n_rollout"] (20) = 500 raw
+# steps: under tem_training_loop's rotate_environments option, no completed
+# walk segment is ever shorter than walk_it_min, so a window this size can
+# never reach back across more than one rotation boundary. That's a
+# reduced-odds mitigation, not a guarantee, though - an eval checkpoint can
+# still land shortly after a rotation. The actual guarantee is the
+# per-env last_rotation_step truncation applied below and in
+# compute_multienv_rates()/_tem_eval_allenvs.py's chunked equivalent, which
+# is correct regardless of this constant's value.
+EVAL_STEPS = 500
 MIN_DISPLAY_AMPLITUDE = 0.02   # matches tem_predictive_analysis.py's MIN_AMPLITUDE convention
 
 
@@ -69,6 +79,16 @@ def run_eval(agent, env, episode: int, eval_save_path: str):
     real_actions = agent.walk_actions[-len(real_history):]
 
     n_steps = min(EVAL_STEPS, len(real_history))
+    if n_steps == 0:
+        return
+    # Truncate further so the window never reaches back before env 0's most
+    # recent environment rotation (see tem_training_loop's rotate_environments
+    # option) - otherwise it could silently average together two different
+    # environment layouts for the same state id. getattr() keeps this
+    # backward-compatible with agents saved before last_rotation_step existed
+    # (treated as "never rotated", i.e. no truncation).
+    rotation_step = getattr(agent, "last_rotation_step", [0])[0]
+    n_steps = sum(1 for idx in real_indices[-n_steps:] if idx >= rotation_step)
     if n_steps == 0:
         return
     history_slice = real_history[-n_steps:]
@@ -395,8 +415,18 @@ def compute_multienv_rates(agent, env, window_steps: int = EVAL_STEPS):
         [[[] for _ in range(n_states_list[j])] for _ in range(n_f)]
         for j in range(n_envs)
     ]
-    for step in forward:
+    # Per-env rotation timestamps (see tem_training_loop's rotate_environments
+    # option): a step older than a given env's last rotation belongs to that
+    # env's PREVIOUS (different) environment layout, so it must not be
+    # averaged together with post-rotation steps for the same state id.
+    # getattr() keeps this backward-compatible with agents saved before
+    # last_rotation_step existed (treated as "never rotated").
+    rotation_steps = getattr(agent, "last_rotation_step", [0] * n_envs)
+    for local_i, step in enumerate(forward):
+        global_idx = held_indices[local_i]
         for j in range(n_envs):
+            if global_idx < rotation_steps[j]:
+                continue
             loc = step.g[j]["id"]
             if loc < 0:
                 continue
