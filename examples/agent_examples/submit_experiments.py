@@ -160,6 +160,15 @@ def main():
             slurm_cpus_per_task=args.cpus_per_task,
             slurm_mem=f"{args.mem_gb}G",
             slurm_job_name="tem_r",
+            # Without this, submitit's generated sbatch script never sets
+            # --ntasks/--ntasks-per-node at all, and this cluster's Slurm
+            # defaults then launch the srun command multiple times within
+            # the SAME job allocation (observed: 3 concurrent copies of the
+            # training script, all racing to os.makedirs() the identical
+            # TEM_SAVE_ROOT and crashing 2-of-3 with FileExistsError - the
+            # "surviving" copy still isn't a normal single run, it's just
+            # whichever one won the race). This is exactly one task, always.
+            tasks_per_node=1,
         )
 
     jobs = []
