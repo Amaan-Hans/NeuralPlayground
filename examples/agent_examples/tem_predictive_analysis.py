@@ -56,19 +56,50 @@ LOOP_START_EPISODE  = 0 if TEST_MODE else 1000
 PROXIMAL_THRESHOLD  = 2.0
 os.makedirs(OUT_DIR, exist_ok=True)
 
+# Defaults match this repo's historical env-0 config (10x10, reward at
+# [3,3]) - callers using a different --arena-side / reward location (see
+# whittington_2020_run.py) MUST call configure_geometry() with the actual
+# values before running any analysis below, since every module-level global
+# here is derived from these at import time, not looked up dynamically per
+# run. run_full_experiment.py does this automatically.
 REWARD_LOCATION = np.array([3.0, 3.0])
 ROOM_W, ROOM_D  = 10, 10          # env 0: [-5,5] x [-5,5], state_density=1
 STATE_DENSITY   = 1
 N_STATES        = ROOM_W * ROOM_D  # 100
 
-# Grid cell centres (matches DiscreteObjectEnvironment xy_combination for env 0)
-_x = np.linspace(-ROOM_W/2 + 0.5/STATE_DENSITY, ROOM_W/2 - 0.5/STATE_DENSITY, ROOM_W)
-_y = np.linspace(-ROOM_D/2 + 0.5/STATE_DENSITY, ROOM_D/2 - 0.5/STATE_DENSITY, ROOM_D)
-XY = np.stack(np.meshgrid(_x, _y), axis=-1)          # (ROOM_D, ROOM_W, 2)
-XY_FLAT = XY.reshape(-1, 2)                           # (N_STATES, 2)  row = state id
 
-# Distance from each state to the reward location
-DIST_TO_REWARD = np.linalg.norm(XY_FLAT - REWARD_LOCATION, axis=1)  # (N_STATES,)
+def _recompute_geometry():
+    """Recompute every global derived from ROOM_W/ROOM_D/REWARD_LOCATION.
+    Call after changing any of those three (see configure_geometry)."""
+    global N_STATES, XY, XY_FLAT, DIST_TO_REWARD
+    N_STATES = ROOM_W * ROOM_D
+    _x = np.linspace(-ROOM_W / 2 + 0.5 / STATE_DENSITY, ROOM_W / 2 - 0.5 / STATE_DENSITY, ROOM_W)
+    _y = np.linspace(-ROOM_D / 2 + 0.5 / STATE_DENSITY, ROOM_D / 2 - 0.5 / STATE_DENSITY, ROOM_D)
+    XY = np.stack(np.meshgrid(_x, _y), axis=-1)          # (ROOM_D, ROOM_W, 2)
+    XY_FLAT = XY.reshape(-1, 2)                           # (N_STATES, 2)  row = state id
+    DIST_TO_REWARD = np.linalg.norm(XY_FLAT - REWARD_LOCATION, axis=1)  # (N_STATES,)
+
+
+def configure_geometry(room_w=None, room_d=None, reward_location=None, state_density=None):
+    """Override env-0's assumed geometry before running analysis - needed
+    whenever training used something other than the historical 10x10/[3,3]
+    default (e.g. whittington_2020_run.py's --arena-side / dynamic reward
+    location). Only supplied arguments are changed; call with no arguments
+    to just recompute from whatever is currently set.
+    """
+    global ROOM_W, ROOM_D, REWARD_LOCATION, STATE_DENSITY
+    if room_w is not None:
+        ROOM_W = int(room_w)
+    if room_d is not None:
+        ROOM_D = int(room_d)
+    if reward_location is not None:
+        REWARD_LOCATION = np.array(reward_location, dtype=float)
+    if state_density is not None:
+        STATE_DENSITY = state_density
+    _recompute_geometry()
+
+
+_recompute_geometry()
 
 # ── Reward-zone field enrichment configuration ─────────────────────────────────
 # Zone radius matches PROXIMAL_THRESHOLD's convention (same "how close counts as

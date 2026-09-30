@@ -1,13 +1,42 @@
-"""Training simulation for the Whittington et al.
+"""Training simulation for the Whittington et al. 2020 agent (TEM),
+consolidated with everything learned from the size/rotation audit:
 
-2020 agent, the Tolman-Eichenbaum Machine (TEM). The TEM is a model of
-the hippocampus that learns to navigate a series of environments and
-solve a series of tasks.
+- ROTATE_ENVIRONMENTS (default True): reproduces torch_tem's own training
+  regime — each batch slot's environment gets replaced with a freshly
+  randomized instance (same size/config) after a variable-length walk,
+  instead of staying fixed for the whole run. This is what let a matched
+  25-state/5000-episode run recover ~100% one-step predictive accuracy
+  (x_gt), vs ~50-78% without it. See tem_training_loop's docstring for the
+  mechanism. CAVEAT: env 0's plots/checkpoint-trend analyses
+  (tem_predictive_analysis.py) assume env 0 is the SAME environment across
+  checkpoints — that assumption breaks under rotation, since env 0 may have
+  rotated to a fresh layout between any two checkpoints. Set
+  ROTATE_ENVIRONMENTS=0 if you need that assumption to hold.
+- ARENA_SIDE (default 10, i.e. 100 states/env): all 16 batch slots use a
+  single square size instead of the historical 8x8/10x10/12x12 mix, so
+  environment "difficulty" is an explicit, controllable variable. The
+  original torch_tem reference config used 5x5 (25 states); NeuralPlayground
+  historically defaulted to a 64-144 state mix (average ~100).
+- N_CONTROL_LANDMARKS / DECOY_OBJECT_ID: extra environment structure (see
+  DiscreteObjectEnvironment.generate_objects docstring) — defaults (10, 30)
+  match the config the cluster runs actually used: 10 more never-duplicated,
+  reward-biased "control" objects the agent's value mechanism never tracks
+  (ids >= N_LANDMARKS, outside held_landmark/TD's own range), and every
+  remaining state tiled with one fixed decoy id so ONLY the 20 landmark
+  states are ever sensorily distinguishable. Set N_CONTROL_LANDMARKS=0 /
+  DECOY_OBJECT_ID=None (env vars, empty string for the latter) to reproduce
+  the original fully-random decoy layout exactly.
+- SAVE_MULTIENV_CSV (default True): also saves a per-(env, state) place-cell
+  CSV covering every environment in the batch (not just env 0) at episodes
+  1000/2000/3000/4000/5000, via _tem_eval_allenvs.run_eval_combined - a
+  chunked forward pass (verified numerically identical to the monolithic
+  version) so it's safe even when both conditions checkpoint concurrently
+  on one shared GPU. Set to "0" to fall back to the original env-0-only
+  run_eval and skip this entirely.
 
-Both conditions use the same N_LANDMARKS unique, never-duplicated landmark
-objects (placed with bias toward REWARD_LOCATION — see
-DiscreteObjectEnvironment.generate_objects) and the same trajectory seed, so
-the environment and the path walked are identical either way.
+Both conditions use the same landmark objects (placed with bias toward
+REWARD_LOCATION) and the same trajectory seed, so the environment and the
+path walked are identical either way.
 
 Set USE_REWARD = True for the TEM-R condition: a TD-learned value over held
 landmark identity is written into the dedicated trailing dimension of the
@@ -22,9 +51,6 @@ Useful_info/experiment_changes.md).
 
 import os
 
-import numpy as np
-
-from _tem_eval import run_eval
 from neuralplayground.agents.whittington_2020 import Whittington2020
 from neuralplayground.agents.whittington_2020_extras import (
     whittington_2020_parameters as parameters,
@@ -34,19 +60,34 @@ from neuralplayground.backend import SingleSim, tem_training_loop
 from neuralplayground.experiments import Sargolini2006Data
 
 # ── Experiment flags ───────────────────────────────────────────────────────────
-# Env-var overrides (TEM_USE_REWARD / TEM_TEST_MODE / TEM_SEED / TEM_SAVE_ROOT)
-# let run_full_experiment.py drive both conditions, a chosen seed, and a
-# chosen output root from one script without editing this file; manual edits
-# of the literals below still work for one-off interactive runs.
-USE_REWARD          = os.environ.get("TEM_USE_REWARD", "0") == "1"      # False = baseline, True = TEM-R (V(landmark) written into x_c's value dim)
-TEST_MODE           = os.environ.get("TEM_TEST_MODE", "0") == "1"     # True = 10-episode smoke test (quick sanity check)
-TRAJECTORY_SEED     = int(os.environ.get("TEM_SEED", "123"))  # Fixed seed — keep identical across conditions
-REWARD_LOCATION     = [3.0, 3.0]  # Reward site; inside all environment bounds
-TD_ALPHA            = 0.1         # Tabular value-table learning rate
-TD_GAMMA            = 0.95         # TD discount factor
-N_LANDMARKS         = 10          # Unique, never-duplicated landmark objects per env (ids 0..N_LANDMARKS-1)
-LANDMARK_BIAS_SCALE = 2.0         # Exponential length scale (arena units) biasing landmarks toward REWARD_LOCATION; larger = weaker bias
+# Env-var overrides let run_full_experiment.py / submitit jobs drive every
+# condition from one script without editing this file; manual edits of the
+# literals below still work for one-off interactive runs.
+USE_REWARD          = os.environ.get("TEM_USE_REWARD", "0") == "1"      # False = baseline, True = TEM-R
+TEST_MODE           = os.environ.get("TEM_TEST_MODE", "0") == "1"      # True = 10-episode smoke test
+TRAJECTORY_SEED     = int(os.environ.get("TEM_SEED", "123"))
+REWARD_LOCATION_FRAC = 0.2   # reward sits at (ARENA_SIDE * this, same) - stays inside bounds at any size
+TD_ALPHA            = 0.1
+TD_GAMMA            = 0.95
+N_LANDMARKS         = int(os.environ.get("TEM_N_LANDMARKS", "10"))
+N_CONTROL_LANDMARKS = int(os.environ.get("TEM_N_CONTROL_LANDMARKS", "10"))
+_decoy_env          = os.environ.get("TEM_DECOY_OBJECT_ID", "30")      # "" (empty) = original random decoys
+DECOY_OBJECT_ID     = int(_decoy_env) if _decoy_env != "" else None
+LANDMARK_BIAS_SCALE = 2.0
+ARENA_SIDE          = float(os.environ.get("TEM_ARENA_SIDE", "10"))    # side length -> n_states = ARENA_SIDE**2
+ROTATE_ENVIRONMENTS = os.environ.get("TEM_ROTATE_ENVIRONMENTS", "1") == "1"
+BATCH_SIZE          = int(os.environ.get("TEM_BATCH_SIZE", "16"))
+SAVE_MULTIENV_CSV   = os.environ.get("TEM_SAVE_MULTIENV_CSV", "1") == "1"  # all-envs place-cell CSV per checkpoint
+N_EPISODE_OVERRIDE  = os.environ.get("TEM_N_EPISODE")
+EVAL_INTERVAL_OVERRIDE = os.environ.get("TEM_EVAL_INTERVAL")
 # ──────────────────────────────────────────────────────────────────────────────
+
+if SAVE_MULTIENV_CSV:
+    from _tem_eval_allenvs import run_eval_combined as run_eval
+else:
+    from _tem_eval import run_eval
+
+REWARD_LOCATION = [ARENA_SIDE * REWARD_LOCATION_FRAC, ARENA_SIDE * REWARD_LOCATION_FRAC]
 
 # Overrides the default results_sim<suffix>/ root when set by
 # run_full_experiment.py, e.g. to write into experiments/random/seed_<N>/.
@@ -60,7 +101,22 @@ agent_class = Whittington2020
 env_class = BatchEnvironment
 training_loop = tem_training_loop
 
+if N_EPISODE_OVERRIDE is not None:
+    _n_episode = int(N_EPISODE_OVERRIDE)
+else:
+    _n_episode = 10 if TEST_MODE else 5000
+if EVAL_INTERVAL_OVERRIDE is not None:
+    _eval_interval = int(EVAL_INTERVAL_OVERRIDE)
+else:
+    _eval_interval = 2 if TEST_MODE else 1000
+
 params = parameters.parameters()
+# The eta/lambda/lr-decay/loss-weight annealing schedule below was tuned for
+# params["train_it"]=20000 backprop iterations. This run only does
+# _n_episode (one iteration per episode) - rescale so eta (Hebbian memory
+# write rate) still reaches its mature value by the end of THIS run instead
+# of stalling early (see rescale_schedule_for_train_it's docstring).
+params = parameters.rescale_schedule_for_train_it(params, _n_episode)
 full_agent_params = params.copy()
 # TEM-R doesn't widen n_x (raw one-hot vocabulary) at all: V(landmark) reaches
 # TEM by being written into the dedicated trailing dimension of the compressed
@@ -69,42 +125,9 @@ full_agent_params = params.copy()
 # an identical network width; only whether that dimension is ever set to a
 # nonzero value differs, via agent_params["use_reward"] below).
 
-arena_x_limits = [
-    [-5, 5],
-    [-4, 4],
-    [-5, 5],
-    [-6, 6],
-    [-4, 4],
-    [-5, 5],
-    [-6, 6],
-    [-5, 5],
-    [-4, 4],
-    [-5, 5],
-    [-6, 6],
-    [-5, 5],
-    [-4, 4],
-    [-5, 5],
-    [-6, 6],
-    [-5, 5],
-]
-arena_y_limits = [
-    [-5, 5],
-    [-4, 4],
-    [-5, 5],
-    [-6, 6],
-    [-4, 4],
-    [-5, 5],
-    [-6, 6],
-    [-5, 5],
-    [-4, 4],
-    [-5, 5],
-    [-6, 6],
-    [-5, 5],
-    [-4, 4],
-    [-5, 5],
-    [-6, 6],
-    [-5, 5],
-]
+_half = ARENA_SIDE / 2
+arena_x_limits = [[-_half, _half]] * BATCH_SIZE
+arena_y_limits = [[-_half, _half]] * BATCH_SIZE
 
 room_widths = [x[1] - x[0] for x in arena_x_limits]
 room_depths = [y[1] - y[0] for y in arena_y_limits]
@@ -121,13 +144,15 @@ discrete_env_params = {
     # both conditions get the same never-duplicated, reward-biased landmark
     # layout; only the agent's use of a value mechanism differs.
     "n_landmarks": N_LANDMARKS,
+    "n_control_landmarks": N_CONTROL_LANDMARKS,
+    "decoy_object_id": DECOY_OBJECT_ID,
     "reward_location": REWARD_LOCATION,
     "landmark_bias_scale": LANDMARK_BIAS_SCALE,
 }
 
 env_params = {
     "environment_name": "BatchEnvironment",
-    "batch_size": 16,
+    "batch_size": BATCH_SIZE,
     "arena_x_limits": arena_x_limits,
     "arena_y_limits": arena_y_limits,
     "env_class": DiscreteObjectEnvironment,
@@ -150,9 +175,6 @@ agent_params = {
     "n_landmarks": N_LANDMARKS,
 }
 
-_n_episode    = 10   if TEST_MODE else 5000
-_eval_interval = 2   if TEST_MODE else 1000
-
 training_loop_params = {
     "n_episode": _n_episode,
     "params": full_agent_params,
@@ -161,6 +183,7 @@ training_loop_params = {
     "eval_fn": run_eval,
     "eval_interval": _eval_interval,
     "eval_save_path": save_path,
+    "rotate_environments": ROTATE_ENVIRONMENTS,
 }
 
 sim = SingleSim(
@@ -173,7 +196,12 @@ sim = SingleSim(
     training_loop_params=training_loop_params,
 )
 
-# print(sim)
-print("Running sim...")
-sim.run_sim(save_path)
-print("Sim finished.")
+if __name__ == "__main__":
+    print(
+        f"Running sim... condition={_condition} arena_side={ARENA_SIDE} "
+        f"(n_states={int(ARENA_SIDE) ** 2}) n_episode={_n_episode} "
+        f"rotate_environments={ROTATE_ENVIRONMENTS} "
+        f"n_control_landmarks={N_CONTROL_LANDMARKS} decoy_object_id={DECOY_OBJECT_ID}"
+    )
+    sim.run_sim(save_path)
+    print("Sim finished.")

@@ -32,15 +32,25 @@ class BatchEnvironment(Environment):
         super().__init__(environment_name, **env_kwargs)
         self.env_kwargs = env_kwargs.copy()
         arg_env_params = env_kwargs["arg_env_params"]
+        self.env_class = env_class
         self.batch_size = batch_size
         self.batch_x_limits = env_kwargs["arena_x_limits"]
         self.batch_y_limits = env_kwargs["arena_y_limits"]
         self.use_behavioural_data = arg_env_params["use_behavioural_data"]
         self.environments = []
+        # Per-slot copy of the construction kwargs (arena limits filled in
+        # per slot) - kept so a fresh same-size/same-config environment can
+        # be reconstructed for any one slot later (e.g. for training-time
+        # environment rotation, see tem_training_loop's
+        # rotate_environments option). A single shared dict mutated in the
+        # loop would only ever reflect the LAST slot's limits.
+        self.batch_arg_env_params = []
         for i in range(self.batch_size):
-            arg_env_params["arena_x_limits"] = self.batch_x_limits[i]
-            arg_env_params["arena_y_limits"] = self.batch_y_limits[i]
-            self.environments.append(env_class(**arg_env_params))
+            slot_params = dict(arg_env_params)
+            slot_params["arena_x_limits"] = self.batch_x_limits[i]
+            slot_params["arena_y_limits"] = self.batch_y_limits[i]
+            self.batch_arg_env_params.append(slot_params)
+            self.environments.append(env_class(**slot_params))
 
         self.room_widths = [
             np.diff(self.environments[i].arena_x_limits)[0]

@@ -392,6 +392,46 @@ def parameters():
     return params
 
 
+def rescale_schedule_for_train_it(params, train_it):
+    """Rescale the annealing-schedule constants to match an actual training
+    length that differs from the ``train_it=20000`` default above.
+
+    ``eta_it``, ``lambda_it``, ``p2g_sig_half_it``, ``p2g_sig_scale_it``,
+    ``lr_decay_steps``, ``loss_weights_p_g_it``, ``loss_weights_reg_p_it`` and
+    ``loss_weights_reg_g_it`` were all tuned as specific iteration counts
+    assuming ~20000 backprop iterations of training (one iteration per
+    episode in ``tem_training_loop``). A run trained for fewer iterations
+    (e.g. 5000) but left with these constants unscaled never finishes
+    ramping ``eta`` (the Hebbian memory write rate) to its mature value -
+    at iteration 5000 with ``eta_it=16000``, eta only reaches ~31% of
+    ``params["eta"]``, which starves the memory-retrieval-dependent
+    generative pathways (x_g, x_gt) while the memory-independent pathway
+    (x_p) is unaffected. This rescales every such constant by
+    ``train_it / params["train_it"]`` so the same *fraction* of training is
+    used to reach full ramp, then overwrites ``params["train_it"]`` itself
+    (also read directly in ``parameter_iteration``'s walk-length-window
+    schedule).
+
+    Call this once, right after ``parameters()``, before the params dict is
+    handed to the agent - mutates and returns the same dict.
+    """
+    reference_train_it = params["train_it"]
+    scale = train_it / reference_train_it
+    for key in (
+        "eta_it",
+        "lambda_it",
+        "p2g_sig_half_it",
+        "p2g_sig_scale_it",
+        "lr_decay_steps",
+        "loss_weights_p_g_it",
+        "loss_weights_reg_p_it",
+        "loss_weights_reg_g_it",
+    ):
+        params[key] = max(1, round(params[key] * scale))
+    params["train_it"] = train_it
+    return params
+
+
 # This specifies how parameters are updated at every backpropagation iteration/gradient
 # update
 def parameter_iteration(iteration, params):

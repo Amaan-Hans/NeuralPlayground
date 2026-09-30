@@ -182,6 +182,11 @@ print(f"  {LANDMARK_POSITIONS}")
 
 # ── Environment/agent params shared by both conditions ────────────────────────
 params = parameters.parameters()
+# See whittington_2020_run.py / rescale_schedule_for_train_it's docstring:
+# the eta/lambda/lr-decay/loss-weight schedule was tuned for 20000 backprop
+# iterations; this script only runs N_TOTAL_EPISODES, so rescale it to reach
+# full ramp by the end of THIS run instead of stalling early.
+params = parameters.rescale_schedule_for_train_it(params, N_TOTAL_EPISODES)
 full_agent_params = params.copy()
 
 discrete_env_params = {

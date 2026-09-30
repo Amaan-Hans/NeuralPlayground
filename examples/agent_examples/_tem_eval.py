@@ -102,7 +102,7 @@ def run_eval(agent, env, episode: int, eval_save_path: str):
             v_seq[i] = v_t / v_max if v_max > 0 else 0.0
 
     action_values = agent.step_to_actions(walk_slice)
-    action_array = np.reshape(action_values, (n_steps, 16))[:, 0]
+    action_array = np.reshape(action_values, (n_steps, agent.batch_size))[:, 0]
 
     model_input = [
         [

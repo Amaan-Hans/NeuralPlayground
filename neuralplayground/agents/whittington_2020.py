@@ -432,8 +432,10 @@ class Whittington2020(AgentCore):
 
         # Collect all information in walk variable.
         model_input = []
-        obs_array = np.reshape(observations, (20, 16, self.pars["n_x"]))
-        act_array = np.reshape(action_values, (20, 16))
+        obs_array = np.reshape(
+            observations, (self.pars["n_rollout"], self.batch_size, self.pars["n_x"])
+        )
+        act_array = np.reshape(action_values, (self.pars["n_rollout"], self.batch_size))
         for i in range(self.pars["n_rollout"]):
             step = [
                 locations[i],

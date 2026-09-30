@@ -89,7 +89,8 @@ def episode_based_training_loop(
 
 def tem_training_loop(agent: AgentCore, env: Environment, n_episode: int, params: dict,
                       trajectory_seed: int = None, random_start: bool = False,
-                      eval_fn=None, eval_interval: int = 1000, eval_save_path: str = None):
+                      eval_fn=None, eval_interval: int = 1000, eval_save_path: str = None,
+                      rotate_environments: bool = False):
     """Training loop for agents and environments that use a TEM-based update.
 
     Parameters
@@ -107,6 +108,24 @@ def tem_training_loop(agent: AgentCore, env: Environment, n_episode: int, params
           ``trajectory_seed`` (int): seed np.random before trajectory begins
           so reward and no-reward runs follow identical paths.
           ``random_start`` (bool): if False (default), agents start at [0,0].
+    rotate_environments : bool
+        If True, reproduces the original torch_tem training regime
+        (jbakermans/torch_tem's run.py): each of the batch's environments
+        independently walks a variable-length "episode" (sampled between
+        ``params["walk_it_min"]`` and a shrinking ``walk_it_max``/
+        ``walk_it_window`` window - the exact schedule
+        ``parameter_iteration`` already computes for other purposes), and
+        the moment that walk runs out, THAT ONE environment slot is
+        replaced with a freshly randomized instance of the same
+        size/config (new object layout, same graph) - the other slots are
+        completely unaffected and keep training on whatever they currently
+        have. This reuses Model.init_walks()'s existing per-slot "new walk"
+        reset (triggered by ``prev_iter[0].a[env_i] is None``, mirroring
+        torch_tem's own ``prev_iter[0].a[env_i] = None``) rather than
+        needing any agent/model changes. Default False, which reproduces
+        this codebase's previous behaviour exactly (env.reset() once, fixed
+        for the whole run) - existing analyses that assume env 0's identity
+        stays fixed across training checkpoints depend on this default.
 
     Returns
     -------
@@ -130,12 +149,56 @@ def tem_training_loop(agent: AgentCore, env: Environment, n_episode: int, params
     # Fixed start position [0,0] keeps both conditions comparable; random_start
     # can be re-enabled for standard TEM training without the reward experiment.
     obs, state = env.reset(random_state=random_start, custom_state=None if random_start else [0, 0])
+
+    if rotate_environments:
+        # Lazy import: keeps this generic training-loop module from
+        # depending on a specific agent's parameter schedule unless rotation
+        # is actually requested.
+        from neuralplayground.agents.whittington_2020_extras import (
+            whittington_2020_parameters as _tem_parameters,
+        )
+        n_envs = env.batch_size
+        walk_it_min = params["walk_it_min"]
+        walk_it_max = params["walk_it_max"]
+        walk_it_window = params["walk_it_window"]
+        # Initial walk lengths sampled from the FULL window, mirroring
+        # torch_tem run.py's very first walk generation before any
+        # parameter_iteration() call.
+        steps_until_switch = [
+            int(np.random.randint(walk_it_min, walk_it_max)) for _ in range(n_envs)
+        ]
+
     for i in range(n_episode):
         # Collect n_rollout steps, then do one gradient update.
         while agent.n_walk < params["n_rollout"]:
             actions = agent.batch_act(obs)
             obs, state, reward = env.step(actions, normalize_step=True)
         agent.update()
+
+        if rotate_environments:
+            _, _, _, _, walk_length_center, _ = _tem_parameters.parameter_iteration(
+                agent.iter, params
+            )
+            for j in range(n_envs):
+                steps_until_switch[j] -= 1
+                if steps_until_switch[j] <= 0:
+                    new_env = env.env_class(**env.batch_arg_env_params[j])
+                    new_obs, _ = new_env.reset(
+                        random_state=random_start, custom_state=None if random_start else [0, 0]
+                    )
+                    env.environments[j] = new_env
+                    obs[j] = new_obs
+                    agent.visited[j] = [False for _ in range(agent.n_states[j])]
+                    agent.held_landmark[j] = None
+                    # Signal the model: slot j's next chunk starts a brand-new
+                    # walk - Model.init_walks() (called at the top of the next
+                    # forward()) resets M[j], g_inf[j], x_inf[j] to fresh
+                    # initial values when it sees a None action here.
+                    agent.prev_iter[0].a[j] = None
+                    low = max(1, int(round(walk_length_center - walk_it_window * 0.5)))
+                    high = max(low + 1, int(round(walk_length_center + walk_it_window * 0.5)))
+                    steps_until_switch[j] = int(np.random.randint(low, high))
+
         # Periodic evaluation: save plots and raw arrays every eval_interval
         # episodes, plus always at episode 1 (i == 0) so training-progress
         # plots have a checkpoint at the very start, not just from
