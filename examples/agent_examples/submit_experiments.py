@@ -65,8 +65,9 @@ def run_training_job(env_overrides: dict):
 
 
 def build_env_overrides(seed: int, condition: str, args: argparse.Namespace) -> dict:
+    tag = f"_{args.run_tag}" if args.run_tag else ""
     save_root = os.path.join(
-        REPO_ROOT, "experiments", "random", f"seed_{seed}" + ("_test" if args.test else "")
+        REPO_ROOT, "experiments", "random", f"seed_{seed}{tag}" + ("_test" if args.test else "")
     )
     os.makedirs(save_root, exist_ok=True)
     overrides = {
@@ -82,6 +83,8 @@ def build_env_overrides(seed: int, condition: str, args: argparse.Namespace) -> 
         "TEM_SAVE_MULTIENV_CSV": "0" if args.no_multienv_csv else "1",
         "TEM_BATCH_SIZE": str(args.batch_size),
     }
+    if args.size_cycle is not None:
+        overrides["TEM_SIZE_CYCLE"] = args.size_cycle
     if args.n_episode is not None:
         overrides["TEM_N_EPISODE"] = str(args.n_episode)
     if args.eval_interval is not None:
@@ -110,6 +113,18 @@ def main():
     )
     parser.add_argument("--arena-side", type=float, default=10.0,
                          help="Only used with --no-vary-arena-size.")
+    parser.add_argument(
+        "--size-cycle", default=None,
+        help="Comma-separated arena side lengths to cycle across the 16 batch slots, e.g. "
+             "'5,6,7' or '5,6,7,10,12' — overrides --no-vary-arena-size/--arena-side entirely. "
+             "Reward location auto-shrinks to fit the smallest size in the cycle.",
+    )
+    parser.add_argument(
+        "--run-tag", default=None,
+        help="Appended to the save root as seed_<seed>_<tag>/ — needed when submitting more "
+             "than one config for the same seed (e.g. different --size-cycle variants) so they "
+             "don't collide on the same save directory.",
+    )
     parser.add_argument("--no-rotate", action="store_true")
     parser.add_argument("--n-control-landmarks", type=int, default=10)
     parser.add_argument("--decoy-object-id", type=int, default=30)

@@ -73,7 +73,6 @@ from neuralplayground.experiments import Sargolini2006Data
 USE_REWARD          = os.environ.get("TEM_USE_REWARD", "0") == "1"      # False = baseline, True = TEM-R
 TEST_MODE           = os.environ.get("TEM_TEST_MODE", "0") == "1"      # True = 10-episode smoke test
 TRAJECTORY_SEED     = int(os.environ.get("TEM_SEED", "123"))
-REWARD_LOCATION_FRAC = 0.2   # reward sits at (ARENA_SIDE * this, same) - stays inside bounds at any size
 TD_ALPHA            = 0.1
 TD_GAMMA            = 0.95
 N_LANDMARKS         = int(os.environ.get("TEM_N_LANDMARKS", "10"))
@@ -83,6 +82,7 @@ DECOY_OBJECT_ID     = int(_decoy_env) if _decoy_env != "" else None
 LANDMARK_BIAS_SCALE = 2.0
 VARY_ARENA_SIZE     = os.environ.get("TEM_VARY_ARENA_SIZE", "1") == "1"  # historical 8/10/12-mix vs uniform
 ARENA_SIDE          = float(os.environ.get("TEM_ARENA_SIDE", "10"))    # only used when VARY_ARENA_SIZE=0
+_SIZE_CYCLE_ENV     = os.environ.get("TEM_SIZE_CYCLE")  # e.g. "5,6,7" or "5,6,7,10,12" - overrides both of the above
 ROTATE_ENVIRONMENTS = os.environ.get("TEM_ROTATE_ENVIRONMENTS", "1") == "1"
 BATCH_SIZE          = int(os.environ.get("TEM_BATCH_SIZE", "16"))
 SAVE_MULTIENV_CSV   = os.environ.get("TEM_SAVE_MULTIENV_CSV", "1") == "1"  # all-envs place-cell CSV per checkpoint
@@ -95,12 +95,23 @@ if SAVE_MULTIENV_CSV:
 else:
     from _tem_eval import run_eval
 
-if VARY_ARENA_SIZE:
-    # Original NeuralPlayground default: fixed physical coordinate, chosen to
-    # fit inside even the smallest arena in the mix (8x8, bounds [-4, 4]).
-    REWARD_LOCATION = [3.0, 3.0]
+if _SIZE_CYCLE_ENV:
+    _size_cycle = [float(s) for s in _SIZE_CYCLE_ENV.split(",")]
+elif VARY_ARENA_SIZE:
+    # Historical NeuralPlayground mix: repeats every 4 slots, average ~103.5
+    # states/env (64, 100, or 144 depending on position in the cycle).
+    _size_cycle = [10, 8, 10, 12]
 else:
-    REWARD_LOCATION = [ARENA_SIDE * REWARD_LOCATION_FRAC, ARENA_SIDE * REWARD_LOCATION_FRAC]
+    _size_cycle = [ARENA_SIDE]
+
+# Reward sits at a fixed diagonal coordinate, chosen to stay inside the
+# SMALLEST arena in the cycle (0.5 units of margin from the wall) - this
+# reduces to the historical [3.0, 3.0] exactly whenever every size in the
+# cycle is >= 8 (half-width 3.5), and shrinks automatically for mixes that
+# include smaller arenas (e.g. TEM_SIZE_CYCLE="5,6,7").
+_min_size = min(_size_cycle)
+_reward_coord = min(3.0, _min_size / 2 - 0.5)
+REWARD_LOCATION = [_reward_coord, _reward_coord]
 
 # Overrides the default results_sim<suffix>/ root when set by
 # run_full_experiment.py, e.g. to write into experiments/random/seed_<N>/.
@@ -138,17 +149,9 @@ full_agent_params = params.copy()
 # an identical network width; only whether that dimension is ever set to a
 # nonzero value differs, via agent_params["use_reward"] below).
 
-if VARY_ARENA_SIZE:
-    # Historical NeuralPlayground mix: repeats every 4 slots, average ~103.5
-    # states/env (64, 100, or 144 depending on position in the cycle).
-    _size_cycle = [10, 8, 10, 12]
-    _half_cycle = [[-s / 2, s / 2] for s in _size_cycle]
-    arena_x_limits = [_half_cycle[i % len(_half_cycle)] for i in range(BATCH_SIZE)]
-    arena_y_limits = [_half_cycle[i % len(_half_cycle)] for i in range(BATCH_SIZE)]
-else:
-    _half = ARENA_SIDE / 2
-    arena_x_limits = [[-_half, _half]] * BATCH_SIZE
-    arena_y_limits = [[-_half, _half]] * BATCH_SIZE
+_half_cycle = [[-s / 2, s / 2] for s in _size_cycle]
+arena_x_limits = [_half_cycle[i % len(_half_cycle)] for i in range(BATCH_SIZE)]
+arena_y_limits = [_half_cycle[i % len(_half_cycle)] for i in range(BATCH_SIZE)]
 
 room_widths = [x[1] - x[0] for x in arena_x_limits]
 room_depths = [y[1] - y[0] for y in arena_y_limits]
@@ -219,10 +222,8 @@ sim = SingleSim(
 
 if __name__ == "__main__":
     _size_desc = (
-        f"varying ({sorted(set(w[1] - w[0] for w in arena_x_limits))} state-widths, "
-        f"n_states={sorted(set(int((w[1]-w[0])**2) for w in arena_x_limits))})"
-        if VARY_ARENA_SIZE
-        else f"uniform arena_side={ARENA_SIDE} (n_states={int(ARENA_SIDE) ** 2})"
+        f"cycle={_size_cycle} (n_states={sorted(set(int((w[1]-w[0])**2) for w in arena_x_limits))}) "
+        f"reward_location={REWARD_LOCATION}"
     )
     print(
         f"Running sim... condition={_condition} size={_size_desc} "
