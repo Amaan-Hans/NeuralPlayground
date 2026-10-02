@@ -114,7 +114,10 @@ def tem_training_loop(agent: AgentCore, env: Environment, n_episode: int, params
         independently walks a variable-length "episode" (sampled between
         ``params["walk_it_min"]`` and a shrinking ``walk_it_max``/
         ``walk_it_window`` window - the exact schedule
-        ``parameter_iteration`` already computes for other purposes), and
+        ``parameter_iteration`` already computes for other purposes, scaled
+        per-slot by that slot's own ``n_states`` relative to torch_tem's
+        25-state reference config so bigger environments get proportionally
+        more visits per state before rotating away), and
         the moment that walk runs out, THAT ONE environment slot is
         replaced with a freshly randomized instance of the same
         size/config (new object layout, same graph) - the other slots are
@@ -161,11 +164,28 @@ def tem_training_loop(agent: AgentCore, env: Environment, n_episode: int, params
         walk_it_min = params["walk_it_min"]
         walk_it_max = params["walk_it_max"]
         walk_it_window = params["walk_it_window"]
+        # walk_it_min/max/window were tuned against torch_tem's own 25-state
+        # (5x5) default training environment. Scale each slot's walk length
+        # by its own n_states relative to that reference, so a bigger
+        # environment gets proportionally more steps - and therefore
+        # proportionally more visits per state - before rotating away,
+        # instead of the fast Hebbian memory M being thrown out before it
+        # ever saturates. This mirrors torch_tem's own test.py, which scales
+        # its post-training exposure walk by n_locations
+        # (`walk_len = n_locations * 50`) rather than using a size-
+        # independent walk length - the original authors clearly didn't
+        # expect a fixed step budget to work across environment sizes either.
+        REFERENCE_N_STATES = 25
+        size_scale = [agent.n_states[j] / REFERENCE_N_STATES for j in range(n_envs)]
         # Initial walk lengths sampled from the FULL window, mirroring
         # torch_tem run.py's very first walk generation before any
         # parameter_iteration() call.
         steps_until_switch = [
-            int(np.random.randint(walk_it_min, walk_it_max)) for _ in range(n_envs)
+            int(np.random.randint(
+                max(1, round(walk_it_min * size_scale[j])),
+                max(2, round(walk_it_max * size_scale[j])) + 1,
+            ))
+            for j in range(n_envs)
         ]
 
     for i in range(n_episode):
@@ -208,8 +228,8 @@ def tem_training_loop(agent: AgentCore, env: Environment, n_episode: int, params
                     # forward()) resets M[j], g_inf[j], x_inf[j] to fresh
                     # initial values when it sees a None action here.
                     agent.prev_iter[0].a[j] = None
-                    low = max(1, int(round(walk_length_center - walk_it_window * 0.5)))
-                    high = max(low + 1, int(round(walk_length_center + walk_it_window * 0.5)))
+                    low = max(1, int(round((walk_length_center - walk_it_window * 0.5) * size_scale[j])))
+                    high = max(low + 1, int(round((walk_length_center + walk_it_window * 0.5) * size_scale[j])))
                     steps_until_switch[j] = int(np.random.randint(low, high))
 
         # Periodic evaluation: save plots and raw arrays every eval_interval
