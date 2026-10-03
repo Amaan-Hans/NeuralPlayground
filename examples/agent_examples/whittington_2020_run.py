@@ -58,6 +58,8 @@ Useful_info/experiment_changes.md).
 
 import os
 
+import pandas as pd
+
 from neuralplayground.agents.whittington_2020 import Whittington2020
 from neuralplayground.agents.whittington_2020_extras import (
     whittington_2020_parameters as parameters,
@@ -88,6 +90,16 @@ BATCH_SIZE          = int(os.environ.get("TEM_BATCH_SIZE", "16"))
 SAVE_MULTIENV_CSV   = os.environ.get("TEM_SAVE_MULTIENV_CSV", "1") == "1"  # all-envs place-cell CSV per checkpoint
 N_EPISODE_OVERRIDE  = os.environ.get("TEM_N_EPISODE")
 EVAL_INTERVAL_OVERRIDE = os.environ.get("TEM_EVAL_INTERVAL")
+# Path to a saved "agent" checkpoint file from a prior run (e.g.
+# experiments/random/seed_42_5x5/baseline/agent) - if set, its weights are
+# loaded into this run's freshly-constructed agent right after construction,
+# before training starts. For curriculum/transfer-learning experiments:
+# pretrain on one environment size/config, then continue training on a
+# different one starting from the pretrained structural weights rather than
+# a random init. Only the shared structural weights transfer meaningfully -
+# the fast Hebbian memory M is still reinitialised fresh per environment
+# instance as usual, since it's never part of the state_dict to begin with.
+LOAD_CHECKPOINT     = os.environ.get("TEM_LOAD_CHECKPOINT")
 # ──────────────────────────────────────────────────────────────────────────────
 
 if SAVE_MULTIENV_CSV:
@@ -121,7 +133,16 @@ _condition = "reward_modulated" if USE_REWARD else "baseline"
 simulation_id = f"TEM_{_condition}_sim"
 _results_root = "results_sim_test" if TEST_MODE else "results_sim"
 save_path = os.path.join(_SAVE_ROOT, _condition) if _SAVE_ROOT else os.path.join(os.getcwd(), _results_root, _condition)
-agent_class = Whittington2020
+def _agent_factory(**kwargs):
+    agent = Whittington2020(**kwargs)
+    if LOAD_CHECKPOINT:
+        state_dict = pd.read_pickle(LOAD_CHECKPOINT)
+        agent.tem.load_state_dict(state_dict)
+        print(f"---> Loaded pretrained weights from {LOAD_CHECKPOINT}")
+    return agent
+
+
+agent_class = _agent_factory
 env_class = BatchEnvironment
 training_loop = tem_training_loop
 
@@ -228,7 +249,8 @@ if __name__ == "__main__":
     print(
         f"Running sim... condition={_condition} size={_size_desc} "
         f"n_episode={_n_episode} rotate_environments={ROTATE_ENVIRONMENTS} "
-        f"n_control_landmarks={N_CONTROL_LANDMARKS} decoy_object_id={DECOY_OBJECT_ID}"
+        f"n_control_landmarks={N_CONTROL_LANDMARKS} decoy_object_id={DECOY_OBJECT_ID} "
+        f"load_checkpoint={LOAD_CHECKPOINT}"
     )
     sim.run_sim(save_path)
     print("Sim finished.")

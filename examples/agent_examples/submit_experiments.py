@@ -85,6 +85,8 @@ def build_env_overrides(seed: int, condition: str, args: argparse.Namespace) -> 
     }
     if args.size_cycle is not None:
         overrides["TEM_SIZE_CYCLE"] = args.size_cycle
+    if args.load_checkpoint is not None:
+        overrides["TEM_LOAD_CHECKPOINT"] = args.load_checkpoint.format(seed=seed, condition=condition)
     if args.n_episode is not None:
         overrides["TEM_N_EPISODE"] = str(args.n_episode)
     if args.eval_interval is not None:
@@ -118,6 +120,14 @@ def main():
         help="Comma-separated arena side lengths to cycle across the 16 batch slots, e.g. "
              "'5,6,7' or '5,6,7,10,12' — overrides --no-vary-arena-size/--arena-side entirely. "
              "Reward location auto-shrinks to fit the smallest size in the cycle.",
+    )
+    parser.add_argument(
+        "--load-checkpoint", default=None,
+        help="Path template to a saved 'agent' checkpoint file to load weights from before "
+             "training starts, for curriculum/transfer-learning experiments (e.g. pretrain on "
+             "5x5, continue on 10x10). May contain '{seed}' and '{condition}' placeholders, "
+             "filled per job, e.g. "
+             "'experiments/random/seed_{seed}_curriculum5x5/{condition}/agent'.",
     )
     parser.add_argument(
         "--run-tag", default=None,
