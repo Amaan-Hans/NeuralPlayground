@@ -86,6 +86,20 @@ VARY_ARENA_SIZE     = os.environ.get("TEM_VARY_ARENA_SIZE", "1") == "1"  # histo
 ARENA_SIDE          = float(os.environ.get("TEM_ARENA_SIDE", "10"))    # only used when VARY_ARENA_SIZE=0
 _SIZE_CYCLE_ENV     = os.environ.get("TEM_SIZE_CYCLE")  # e.g. "5,6,7" or "5,6,7,10,12" - overrides both of the above
 ROTATE_ENVIRONMENTS = os.environ.get("TEM_ROTATE_ENVIRONMENTS", "1") == "1"
+# See tem_training_loop's scale_walk_by_size docstring: default True scales
+# walk length by environment size (our own hypothesis); False gives a flat
+# walk_it_min/max/window across all slots, matching Whittington et al.
+# 2020's STAR Methods description (fixed ~2000-5000 raw-step dwell,
+# independent of their worlds' 64-127-state size range).
+SCALE_WALK_BY_SIZE  = os.environ.get("TEM_SCALE_WALK_BY_SIZE", "1") == "1"
+# Override params["walk_it_min"]/["walk_it_max"] (in n_rollout-step chunks,
+# i.e. raw steps / n_rollout) - e.g. to set the paper's literal ~2000-5000
+# raw-step dwell with n_rollout=20: TEM_WALK_IT_MIN=100 TEM_WALK_IT_MAX=250.
+# None (default) leaves parameters.parameters()'s own defaults (25, 300) in
+# place. walk_it_window is recomputed from these as 0.2*(max-min), matching
+# how parameters() itself derives it.
+_WALK_IT_MIN_ENV    = os.environ.get("TEM_WALK_IT_MIN")
+_WALK_IT_MAX_ENV    = os.environ.get("TEM_WALK_IT_MAX")
 BATCH_SIZE          = int(os.environ.get("TEM_BATCH_SIZE", "16"))
 SAVE_MULTIENV_CSV   = os.environ.get("TEM_SAVE_MULTIENV_CSV", "1") == "1"  # all-envs place-cell CSV per checkpoint
 N_EPISODE_OVERRIDE  = os.environ.get("TEM_N_EPISODE")
@@ -133,6 +147,8 @@ _condition = "reward_modulated" if USE_REWARD else "baseline"
 simulation_id = f"TEM_{_condition}_sim"
 _results_root = "results_sim_test" if TEST_MODE else "results_sim"
 save_path = os.path.join(_SAVE_ROOT, _condition) if _SAVE_ROOT else os.path.join(os.getcwd(), _results_root, _condition)
+
+
 def _agent_factory(**kwargs):
     agent = Whittington2020(**kwargs)
     if LOAD_CHECKPOINT:
@@ -162,6 +178,12 @@ params = parameters.parameters()
 # write rate) still reaches its mature value by the end of THIS run instead
 # of stalling early (see rescale_schedule_for_train_it's docstring).
 params = parameters.rescale_schedule_for_train_it(params, _n_episode)
+if _WALK_IT_MIN_ENV is not None:
+    params["walk_it_min"] = int(_WALK_IT_MIN_ENV)
+if _WALK_IT_MAX_ENV is not None:
+    params["walk_it_max"] = int(_WALK_IT_MAX_ENV)
+if _WALK_IT_MIN_ENV is not None or _WALK_IT_MAX_ENV is not None:
+    params["walk_it_window"] = 0.2 * (params["walk_it_max"] - params["walk_it_min"])
 full_agent_params = params.copy()
 # TEM-R doesn't widen n_x (raw one-hot vocabulary) at all: V(landmark) reaches
 # TEM by being written into the dedicated trailing dimension of the compressed
@@ -229,6 +251,7 @@ training_loop_params = {
     "eval_interval": _eval_interval,
     "eval_save_path": save_path,
     "rotate_environments": ROTATE_ENVIRONMENTS,
+    "scale_walk_by_size": SCALE_WALK_BY_SIZE,
 }
 
 sim = SingleSim(
@@ -249,6 +272,8 @@ if __name__ == "__main__":
     print(
         f"Running sim... condition={_condition} size={_size_desc} "
         f"n_episode={_n_episode} rotate_environments={ROTATE_ENVIRONMENTS} "
+        f"scale_walk_by_size={SCALE_WALK_BY_SIZE} walk_it_min={params['walk_it_min']} "
+        f"walk_it_max={params['walk_it_max']} "
         f"n_control_landmarks={N_CONTROL_LANDMARKS} decoy_object_id={DECOY_OBJECT_ID} "
         f"load_checkpoint={LOAD_CHECKPOINT}"
     )

@@ -90,7 +90,7 @@ def episode_based_training_loop(
 def tem_training_loop(agent: AgentCore, env: Environment, n_episode: int, params: dict,
                       trajectory_seed: int = None, random_start: bool = False,
                       eval_fn=None, eval_interval: int = 1000, eval_save_path: str = None,
-                      rotate_environments: bool = False):
+                      rotate_environments: bool = False, scale_walk_by_size: bool = True):
     """Training loop for agents and environments that use a TEM-based update.
 
     Parameters
@@ -117,7 +117,8 @@ def tem_training_loop(agent: AgentCore, env: Environment, n_episode: int, params
         ``parameter_iteration`` already computes for other purposes, scaled
         per-slot by that slot's own ``n_states`` relative to torch_tem's
         25-state reference config so bigger environments get proportionally
-        more visits per state before rotating away), and
+        more visits per state before rotating away - see
+        ``scale_walk_by_size`` to disable this), and
         the moment that walk runs out, THAT ONE environment slot is
         replaced with a freshly randomized instance of the same
         size/config (new object layout, same graph) - the other slots are
@@ -129,6 +130,15 @@ def tem_training_loop(agent: AgentCore, env: Environment, n_episode: int, params
         this codebase's previous behaviour exactly (env.reset() once, fixed
         for the whole run) - existing analyses that assume env 0's identity
         stays fixed across training checkpoints depend on this default.
+    scale_walk_by_size : bool
+        If True (default), each slot's walk length is multiplied by that
+        slot's own n_states / 25 (see rotate_environments). If False, every
+        slot uses the SAME flat walk_it_min/walk_it_max/walk_it_window from
+        params, regardless of its size - this matches Whittington et al.
+        2020's own STAR Methods, which states a fixed ~2000-5000 raw-step
+        dwell per environment with no mention of scaling it by world size
+        (their worlds ranged 64-127 states). Only has an effect when
+        rotate_environments is True.
 
     Returns
     -------
@@ -164,19 +174,25 @@ def tem_training_loop(agent: AgentCore, env: Environment, n_episode: int, params
         walk_it_min = params["walk_it_min"]
         walk_it_max = params["walk_it_max"]
         walk_it_window = params["walk_it_window"]
-        # walk_it_min/max/window were tuned against torch_tem's own 25-state
-        # (5x5) default training environment. Scale each slot's walk length
-        # by its own n_states relative to that reference, so a bigger
-        # environment gets proportionally more steps - and therefore
-        # proportionally more visits per state - before rotating away,
+        # walk_it_min/max/window were tuned against jbakermans/torch_tem's
+        # own 25-state (5x5) default training environment (a third-party
+        # reimplementation, not the original authors' own code). Optionally
+        # scale each slot's walk length by its own n_states relative to that
+        # reference, so a bigger environment gets proportionally more steps
+        # - and therefore more visits per state - before rotating away,
         # instead of the fast Hebbian memory M being thrown out before it
-        # ever saturates. This mirrors torch_tem's own test.py, which scales
-        # its post-training exposure walk by n_locations
-        # (`walk_len = n_locations * 50`) rather than using a size-
-        # independent walk length - the original authors clearly didn't
-        # expect a fixed step budget to work across environment sizes either.
+        # ever saturates. NOTE: Whittington et al. 2020's actual STAR
+        # Methods states a flat ~2000-5000 raw-step dwell per environment
+        # (64-127 states in their worlds) with no mention of scaling by
+        # size - so this scaling is our own hypothesis, not a replication
+        # of the original paper's regime. Set scale_walk_by_size=False for
+        # a flat, size-independent walk length matching that description.
         REFERENCE_N_STATES = 25
-        size_scale = [agent.n_states[j] / REFERENCE_N_STATES for j in range(n_envs)]
+        size_scale = (
+            [agent.n_states[j] / REFERENCE_N_STATES for j in range(n_envs)]
+            if scale_walk_by_size
+            else [1.0 for _ in range(n_envs)]
+        )
         # Initial walk lengths sampled from the FULL window, mirroring
         # torch_tem run.py's very first walk generation before any
         # parameter_iteration() call.

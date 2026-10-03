@@ -82,11 +82,16 @@ def build_env_overrides(seed: int, condition: str, args: argparse.Namespace) -> 
         "TEM_DECOY_OBJECT_ID": "" if args.decoy_object_id < 0 else str(args.decoy_object_id),
         "TEM_SAVE_MULTIENV_CSV": "0" if args.no_multienv_csv else "1",
         "TEM_BATCH_SIZE": str(args.batch_size),
+        "TEM_SCALE_WALK_BY_SIZE": "0" if args.no_walk_scale_by_size else "1",
     }
     if args.size_cycle is not None:
         overrides["TEM_SIZE_CYCLE"] = args.size_cycle
     if args.load_checkpoint is not None:
         overrides["TEM_LOAD_CHECKPOINT"] = args.load_checkpoint.format(seed=seed, condition=condition)
+    if args.walk_it_min is not None:
+        overrides["TEM_WALK_IT_MIN"] = str(args.walk_it_min)
+    if args.walk_it_max is not None:
+        overrides["TEM_WALK_IT_MAX"] = str(args.walk_it_max)
     if args.n_episode is not None:
         overrides["TEM_N_EPISODE"] = str(args.n_episode)
     if args.eval_interval is not None:
@@ -129,6 +134,20 @@ def main():
              "filled per job, e.g. "
              "'experiments/random/seed_{seed}_curriculum5x5/{condition}/agent'.",
     )
+    parser.add_argument(
+        "--no-walk-scale-by-size", action="store_true",
+        help="Disable scaling rotation walk length by environment size (ON by default). Use "
+             "this for a flat walk_it_min/max/window across all slots regardless of size, "
+             "matching Whittington et al. 2020's STAR Methods (~2000-5000 raw-step dwell per "
+             "environment, not scaled by their worlds' 64-127-state size range).",
+    )
+    parser.add_argument(
+        "--walk-it-min", type=int, default=None,
+        help="Override params['walk_it_min'] (n_rollout-step chunks, i.e. raw steps / "
+             "n_rollout). E.g. with n_rollout=20, --walk-it-min 100 --walk-it-max 250 gives "
+             "the paper's literal ~2000-5000 raw-step dwell per environment.",
+    )
+    parser.add_argument("--walk-it-max", type=int, default=None)
     parser.add_argument(
         "--run-tag", default=None,
         help="Appended to the save root as seed_<seed>_<tag>/ — needed when submitting more "
