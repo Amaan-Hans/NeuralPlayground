@@ -112,6 +112,12 @@ def main():
         help="Run locally instead of submitting to Slurm (no cluster needed) — for smoke "
              "tests. Blocks until every job finishes; a real Slurm submission returns immediately.",
     )
+    parser.add_argument(
+        "--conditions", nargs="+", default=["baseline", "reward_modulated"],
+        choices=["baseline", "reward_modulated"],
+        help="Which condition(s) to submit (default: both). E.g. --conditions "
+             "reward_modulated to resubmit just one condition without re-running the other.",
+    )
     parser.add_argument("--test", action="store_true", help="10-episode smoke test.")
     parser.add_argument(
         "--no-vary-arena-size", action="store_true",
@@ -224,7 +230,7 @@ def main():
 
     jobs = []
     for seed in args.seeds:
-        for condition in ("baseline", "reward_modulated"):
+        for condition in args.conditions:
             overrides = build_env_overrides(seed, condition, args)
             job = executor.submit(run_training_job, overrides)
             jobs.append((seed, condition, job))
