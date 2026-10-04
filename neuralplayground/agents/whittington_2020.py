@@ -389,7 +389,21 @@ class Whittington2020(AgentCore):
                 v_table = self.td.V[env_i]
                 v_t = float(v_table[key]) if 0 <= key < v_table.shape[0] else 0.0
                 v_max = float(np.max(v_table))
-                v_step[env_i] = v_t / v_max if v_max > 0 else 0.0
+                # Epsilon floor (not just `> 0`) guards against v_max landing
+                # on a tiny-but-nonzero float from accumulated TD-update
+                # noise over very long runs - without it, v_t / v_max can
+                # spike to an enormous (though finite) ratio that overflows
+                # through the network in one forward pass, producing Inf
+                # then NaN on the backward pass and permanently corrupting
+                # the weights and Adam's moment estimates in a single step
+                # (observed empirically: 50k-episode/large-world runs going
+                # from 0% to 90-100% NaN parameters between one eval
+                # checkpoint and the next). The final clamp to [0, 1] is a
+                # second line of defense, matching the same clamping
+                # already applied to every other internal signal (g, p, M)
+                # in whittington_2020_model.py.
+                raw_ratio = v_t / v_max if v_max > 1e-6 else 0.0
+                v_step[env_i] = min(max(raw_ratio, 0.0), 1.0)
             v_steps.append(torch.from_numpy(v_step).type(torch.float32).to(self.device))
         return v_steps
 
