@@ -58,11 +58,11 @@ Useful_info/experiment_changes.md).
 
 import os
 
-import pandas as pd
-
-from neuralplayground.agents.whittington_2020 import Whittington2020
 from neuralplayground.agents.whittington_2020_extras import (
     whittington_2020_parameters as parameters,
+)
+from neuralplayground.agents.whittington_2020_extras.checkpoint_utils import (
+    agent_with_optional_checkpoint,
 )
 from neuralplayground.arenas import BatchEnvironment, DiscreteObjectEnvironment
 from neuralplayground.backend import SingleSim, tem_training_loop
@@ -147,18 +147,7 @@ _condition = "reward_modulated" if USE_REWARD else "baseline"
 simulation_id = f"TEM_{_condition}_sim"
 _results_root = "results_sim_test" if TEST_MODE else "results_sim"
 save_path = os.path.join(_SAVE_ROOT, _condition) if _SAVE_ROOT else os.path.join(os.getcwd(), _results_root, _condition)
-
-
-def _agent_factory(**kwargs):
-    agent = Whittington2020(**kwargs)
-    if LOAD_CHECKPOINT:
-        state_dict = pd.read_pickle(LOAD_CHECKPOINT)
-        agent.tem.load_state_dict(state_dict)
-        print(f"---> Loaded pretrained weights from {LOAD_CHECKPOINT}")
-    return agent
-
-
-agent_class = _agent_factory
+agent_class = agent_with_optional_checkpoint
 env_class = BatchEnvironment
 training_loop = tem_training_loop
 
