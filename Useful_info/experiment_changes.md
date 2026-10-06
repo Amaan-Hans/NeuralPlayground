@@ -652,5 +652,40 @@ python submit_experiments.py --seeds 42 7 1 --conditions baseline reward_modulat
 Job IDs 64660-64665, saves to
 `experiments/random/seed_{42,7,1}_faithfulregime_v2/{baseline,reward_modulated}/`
 on the cluster. `--run-tag` deliberately new (not `_fixed`) so this doesn't
-overwrite the existing reference checkpoints. Check `squeue -u ahanslod` for
-progress; expect 48h+ given 50k episodes with rotation enabled.
+overwrite the existing reference checkpoints.
+
+### Second NaN-corruption incident (2026-10-06, same campaign) — not reward-specific after all
+
+Two of these six jobs (seed 42 and seed 1, both `reward_modulated`) hit the
+exact same NaN-corruption signature again: clean for ~15-26k episodes, then
+an abrupt 0%->90-100% jump in NaN parameters between one 1000-episode
+checkpoint and the next. Checked directly whether this was a recurrence of
+the `7f67178` value-ratio bug: it wasn't — `v_table.npy` (the actual TD
+value table) was verified perfectly clean at the exact episode where the
+model weights themselves had already gone ~98% NaN, ruling that mechanism
+out. Root cause instead: **`whittington_2020.py`'s training loop had no
+gradient clipping at all** between `loss.backward()` and `self.adam.step()`
+— a single rare large-loss chunk can produce one unclamped Adam update
+large enough to blow shared weights (`w_x`, `alpha`, `g_init`, `w_p`, ...)
+straight to NaN/Inf. Fixed with `clip_grad_norm_(max_norm=10.0)` plus a
+skip-the-optimiser-step guard (logs `[NaN-GUARD]`) if the grad norm itself
+is already non-finite — commit `f125ac4`.
+
+**Initially assumed this was reward_modulated-specific** (matching the
+original incident's pattern) and only relaunched those two jobs with the
+fix, leaving the other four running on unfixed code. **That assumption was
+wrong**: a follow-up check caught **seed 1's `baseline`** hitting the
+identical signature (ep 14000->15000) on the still-unfixed job. Baseline has
+no value channel at all — its `x_c`'s trailing dimension is always exactly
+0 — so this definitively rules out anything value-channel-related as the
+cause. It's a general unclipped-gradient risk in the core architecture that
+can hit **any** condition; `reward_modulated` showing it first across two
+incidents now looks like small-sample coincidence, not a real asymmetry.
+
+All 6 jobs were killed and relaunched from episode 0 under the fix, same
+run-tag `faithfulregime_v2_gradclip`: 64884 (seed42 RM), 64885 (seed1 RM),
+64908 (seed1 baseline), 64909 (seed42 baseline), 64911 (seed7 baseline),
+64912 (seed7 RM). Check `squeue -u ahanslod` for progress, and grep each
+job's `run.log` for `[NaN-GUARD]` if it recurs even with clipping — if so,
+`max_norm=10.0` may need lowering, or gradient magnitude alone isn't the
+full story.
