@@ -507,8 +507,27 @@ class Whittington2020(AgentCore):
         # Do backward pass to calculate gradients with respect to total loss of this
         # chunk
         loss.backward(retain_graph=True)
-        # Then do optimiser step to update parameters of model
-        self.adam.step()
+        # Clip gradient norm before stepping - without this, a single rare large-
+        # loss chunk can produce one Adam step large enough to blow shared weights
+        # (w_x, alpha, g_init, w_p, ...) straight to NaN/Inf in that one update.
+        # Observed empirically: reward_modulated runs going from 0% to 90-100% NaN
+        # parameters between one 1000-episode eval checkpoint and the next, with the
+        # TD value table itself confirmed clean right through the transition (so
+        # this is not the value-channel ratio issue fixed in 7f67178 - it's a
+        # separate, previously-unguarded gradient explosion). max_norm=10.0 is a
+        # generous bound chosen to only intervene on genuine spikes, not perturb
+        # normal training dynamics - revisit if NaN still recurs with this in place.
+        grad_norm = torch.nn.utils.clip_grad_norm_(self.tem.parameters(), max_norm=10.0)
+        if not torch.isfinite(grad_norm):
+            print(
+                f"[NaN-GUARD] non-finite grad norm ({grad_norm}) at episode "
+                f"{self.episode_count} - optimiser step skipped to avoid corrupting "
+                f"weights. Investigate what produced this chunk's loss.",
+                flush=True,
+            )
+        else:
+            # Then do optimiser step to update parameters of model
+            self.adam.step()
         # Update the previous iteration for the next chunk with the final step of
         # this chunk, removing all operation history
         self.prev_iter = [forward[-1].detach()]
