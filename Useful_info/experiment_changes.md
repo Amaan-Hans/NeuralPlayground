@@ -492,3 +492,165 @@ value entering through the same channel as any other sensory information
 disconnected from TEM's own sensory pathway — see Change 2 above for the
 full mechanism and the two alternatives considered and rejected along the
 way.
+
+---
+
+## Update 2026-10-06: cluster training moved to `submit_experiments.py`, a NaN-corruption incident + fix, wall-block retry semantics, and an interactive playground
+
+Everything below postdates `how_to_run.md` / `PIPELINE_REBUILD_GUIDE.md` and is
+not yet reflected there — both still describe the `run_full_experiment.py` /
+`results_sim/` workflow. The current training entry point for real (cluster)
+runs is **`examples/agent_examples/submit_experiments.py`**, driven by
+`submitit` against the Wits bigbatch Slurm cluster (`--local --test` for a
+no-cluster smoke test first). It submits one job per `(seed, condition)` pair,
+env-var-configured (`TEM_SEED`, `TEM_USE_REWARD`, `TEM_VARY_ARENA_SIZE`,
+`TEM_SIZE_CYCLE`, `TEM_ROTATE_ENVIRONMENTS`, `TEM_N_CONTROL_LANDMARKS`,
+`TEM_LOAD_CHECKPOINT`, etc. — see the script's own docstring/`--help`), and
+saves to `experiments/<run_tag>/seed_<seed>[_tag]/<condition>/`, not
+`results_sim/`.
+
+**"Faithful regime" runs** referenced below (`experiments/.../seed_{7,42}_faithfulregime[...]/`)
+are one such campaign: mixed/varying arena sizes across the batch
+(`TEM_VARY_ARENA_SIZE=1`), seeds 7 and 42, both conditions. Treat the name as
+just this campaign's `--run-tag`, not a documented code concept.
+
+### NaN-corruption incident (fixed in `7f67178`)
+
+`_value_for_history`'s per-step value normalisation, `v_t / v_max`, guarded
+only against `v_max == 0`, not against `v_max` landing on a tiny-but-nonzero
+float from accumulated TD-update noise over very long runs. When that
+happened, the ratio could spike to an enormous (though finite) value,
+overflowing through the network in one forward pass and corrupting weights
+*and Adam's moment estimates* to NaN in a single backward pass — confirmed via
+bisection to occur abruptly between one 1000-episode eval checkpoint and the
+next (different episode per seed), affecting **90-100% of `reward_modulated`
+parameters** once triggered. Matched baseline runs (no value channel) stayed
+completely clean. **Fix:** epsilon floor on `v_max` (`> 1e-6`, not just `> 0`)
+plus a final clamp of the ratio to `[0, 1]`, matching the defensive clamping
+already applied to every other internal signal (`g`, `p`, `M`) elsewhere in
+`whittington_2020_model.py`.
+
+**Consequence for any saved checkpoint predating this fix:** corruption is
+silent (training doesn't crash, it just produces garbage from that point on)
+and is *not* retroactively repaired by the code fix — a checkpoint saved
+mid- or post-corruption stays corrupted forever; only a full retrain from
+that point produces clean weights. Always spot-check a `reward_modulated`
+checkpoint before trusting it:
+```python
+import pandas as pd, torch
+sd = pd.read_pickle("<save_path>/agent")
+bad = [k for k, v in sd.items() if isinstance(v, torch.Tensor) and (torch.isnan(v).any() or torch.isinf(v).any())]
+print(f"{len(bad)}/{len(sd)} params NaN/Inf")
+```
+The original `seed_42_faithfulregime/reward_modulated` checkpoint failed this
+check (101/166 params, many at 100% NaN fraction); the `_fixed` retrains
+(`seed_{7,42}_faithfulregime_fixed/`) pass it (0/166).
+
+### Wall-block retry semantics in `batch_act()` — matters for any custom stepping code
+
+`Whittington2020.batch_act()` (`whittington_2020.py:274`) does not commit a
+step just because `env.step()` was called. It compares the **new** batch of
+locations against `self.prev_observations`: if *any* environment in the batch
+claimed a nonzero action but didn't actually move (blocked by an arena wall),
+the **entire batch's** pending transition is discarded — nothing is appended
+to `obs_history`/`walk_actions`, no TD update runs — and every environment
+gets a fresh random action to retry, individually re-checked next call.
+Training and the standard eval probes never see a "claimed move that didn't
+happen" transition as a result.
+
+This was *not* replicated by this session's interactive tool (see below)
+until explicitly fixed — manually driving the model by repeatedly calling the
+forward pass regardless of whether the arena silently clipped a move at a
+wall fed the model constant out-of-distribution phantom transitions, which
+alone was enough to drop baseline's measured accuracy from ~41% to its real
+~98%+ once fixed. **Any future hand-rolled stepping code (not going through
+`batch_act()`) must replicate this check**, e.g. `moved = new_loc !=
+prev_loc`, and skip the model update entirely when `not moved`.
+
+### Interactive local playground (new tool, not part of the repo)
+
+`C:\Users\hansl\Desktop\Projects\Masters_research\tem_playground\` (sibling of
+this repo, not committed) — a small Flask + vanilla-JS app wrapping two frozen
+checkpoints (baseline vs reward_modulated, same seed, `batch_size=1`) side by
+side for interactive/manual stepping (WASD), auto-explore, live
+x_p/x_g/x_gt prediction feedback, movable landmarks, place/grid-cell rate-map
+tabs, and a value/reward landmark grid (blue→red by normalised `V`). Never
+trains — every step runs the frozen forward pass under `torch.no_grad()`.
+Key implementation points worth remembering if resuming work on it:
+- Two sessions must consume the **same pre-generated action sequence** for
+  "explore N steps" to be a fair side-by-side comparison — each session
+  independently drawing from the shared global numpy RNG silently
+  desynchronises their walks.
+- Must replicate the wall-block retry check above (see `model_session.py`'s
+  `_advance()`).
+- `agent_params["params"]["batch_size"]` (nested) must be overridden to `1`
+  separately from the top-level `agent_params["batch_size"]` — missing the
+  nested one causes `IndexError` deep inside `initialise()`.
+
+### Finding (2026-10-06): `reward_modulated` training outcome is seed-dependent, independent of arena size — seed 42 converged badly, seed 7 didn't
+
+Proper batched probe (`tem_probe_mixed_env.py`, not the interactive tool),
+both checkpoints confirmed NaN/Inf-clean:
+
+| condition | seed | size | x_g | x_gt (last 500 eps) |
+|---|---|---|---|---|
+| baseline | 42 | 10 | 98.65% | **98.50%** |
+| reward_modulated | 42 | 10 | 34.00% | **22.38%** |
+| reward_modulated | 42 | 8 | 35.92% | **22.69%** |
+| reward_modulated | 7 | 8 | — | **99.85%** (near-baseline) |
+
+x_p (sensory) is saturated at 100% in every row, so the gap is entirely in
+grid/place prediction. Seed 42's `reward_modulated` scores ~22-23% at **both**
+size 8 and size 10 — ruling out "size 10 specifically is hard for this
+checkpoint." This is **not** the wall-block or NaN-corruption bug (checkpoint
+verified clean; interactive-tool result with the wall-block fix applied,
+35-38%, sits in the same degraded regime as the proper probe, not wildly
+different from it). **Conclusion: this is a seed-dependent training-outcome
+difference, not a size effect or a residual implementation bug** — seed 42's
+`reward_modulated` run converged to a genuinely much worse solution than seed
+7's, for reasons not yet investigated (optimisation landscape / bad luck in
+the value-channel interaction is the leading hypothesis, untested). Any
+single-seed `reward_modulated` result should be treated as potentially
+unrepresentative until more seeds are checked — echoes the existing
+"not seed-stable" caveat in the two-seed multi-env-probe finding above.
+
+**Verification note:** the obvious objection — "maybe the 22% number is
+itself an artifact of the exact same NaN-clipping bug the fix addressed,
+just showing up at eval/inference time instead of during training" — was
+checked directly, not assumed away. `tem_probe_mixed_env.py` (the scratchpad
+probe script used for the table above) turned out to independently
+reimplement the value normalisation rather than calling the agent's own
+`_value_for_history`, and still had the **old, unfixed** version (`v_t /
+v_max if v_max > 0 else 0.0`, no epsilon floor, no `[0,1]` clamp) baked into
+it. Patched it to match the real fix, then reran seed 42 and seed 7 at the
+same size (8) side by side: seed 42 came back at **22.69%** — bit-for-bit
+the same as before the probe-script patch — while seed 7 stayed at 99.89%.
+The fix changing nothing confirms `v_max` never actually hit the dangerous
+near-zero case in either walk, so the low score is not a probe-harness
+artifact. Lesson: any hand-rolled probe that reimplements value-channel
+normalisation instead of calling the agent's real method needs to be
+checked against the current fixed version by hand — it will not pick up
+future fixes automatically.
+
+### Cluster retrain launched (2026-10-06): third seed, same conditions, run-tag `faithfulregime_v2`
+
+To get a third data point on whether `reward_modulated`'s outcome is
+seed-dependent, submitted 6 jobs (seeds 42, 7, 1 × baseline/reward_modulated)
+via `submit_experiments.py`, replicating seed 7's exact saved `params.dict`
+config rather than guessing: 50k episodes, `rotate_environments=True`,
+`scale_walk_by_size=False` with `walk_it_min/max=100/250`, room size cycle
+`[8,9,10,11]` across the 16 batch slots, `n_landmarks=10`,
+`n_control_landmarks=10`, `decoy_object_id=None`, `reward_location=[3,3]`,
+`td_alpha=0.1`, `td_gamma=0.95`, `eval_interval=1000`. Command:
+```
+python submit_experiments.py --seeds 42 7 1 --conditions baseline reward_modulated \
+  --size-cycle "8,9,10,11" --no-walk-scale-by-size --walk-it-min 100 --walk-it-max 250 \
+  --n-episode 50000 --eval-interval 1000 --decoy-object-id -1 \
+  --run-tag faithfulregime_v2 --time-hours 48 --gres ''
+```
+(`--gres ''` needed — see the GRES gotcha added to `PIPELINE_REBUILD_GUIDE.md`.)
+Job IDs 64660-64665, saves to
+`experiments/random/seed_{42,7,1}_faithfulregime_v2/{baseline,reward_modulated}/`
+on the cluster. `--run-tag` deliberately new (not `_fixed`) so this doesn't
+overwrite the existing reference checkpoints. Check `squeue -u ahanslod` for
+progress; expect 48h+ given 50k episodes with rotation enabled.

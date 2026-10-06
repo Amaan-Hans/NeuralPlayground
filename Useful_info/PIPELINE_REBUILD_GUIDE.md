@@ -65,6 +65,19 @@ here). Fix a stale local entry with `ssh-keygen -R 146.141.21.100`.
      `torch.cuda.is_available() == False` or throw a CUDA init warning. Code
      that loads saved checkpoints must handle this (see Phase 3's
      `_CPUUnpickler`).
+   - **`submit_experiments.py`'s default `--gres gpu:1` fails** with
+     `sbatch: error: Invalid generic resource (gres) specification` on this
+     cluster — `sinfo -o '%N %G'` doesn't reliably surface the right GRES
+     string either (GPU presence isn't cleanly visible that way here, even
+     though GPUs are available and get used once a job lands on a node).
+     Fix: pass `--gres ''` to disable the GRES request entirely and just
+     submit to `bigbatch` plain — matches how every prior submission in this
+     project's history has worked (see the CPU-fallback point directly
+     above). Don't waste time hunting for "the correct" GRES string; there
+     isn't one needed.
+   - Access: `ssh -i ~/.ssh/id_ed25519_cluster ahanslod@146.141.21.100` — the
+     default `~/.ssh/id_ed25519` key does **not** work here, the `-i` flag is
+     required or every attempt fails with `Permission denied (publickey,...)`.
 
 ---
 
