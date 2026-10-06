@@ -1,6 +1,8 @@
+import os
 import random
 
 import numpy as np
+import torch
 
 from neuralplayground.agents import AgentCore
 from neuralplayground.arenas import Environment
@@ -254,6 +256,29 @@ def tem_training_loop(agent: AgentCore, env: Environment, n_episode: int, params
         # eval_interval onward.
         if eval_fn is not None and ((i + 1) % eval_interval == 0 or i == 0):
             eval_fn(agent, env, i + 1, eval_save_path)
+
+        # Resumability safety net: a NaN-corruption incident (gradient
+        # explosion with no clipping - now mitigated, but not provably
+        # eliminated) previously cost a 10+ hour run with no way back except
+        # restarting from episode 0. Keep a rolling "last known-good" full
+        # weight snapshot, overwritten only when the current weights are
+        # still finite, so a future corruption leaves a resumable fallback
+        # (via TEM_LOAD_CHECKPOINT) at most eval_interval episodes stale,
+        # instead of destroying the whole run.
+        if eval_save_path is not None and ((i + 1) % eval_interval == 0 or i == 0):
+            state_dict = agent.tem.state_dict()
+            if all(torch.isfinite(v).all() for v in state_dict.values() if torch.is_tensor(v)):
+                ckpt_dir = os.path.join(eval_save_path, "last_good_checkpoint")
+                os.makedirs(ckpt_dir, exist_ok=True)
+                agent.save_agent(os.path.join(ckpt_dir, "agent"))
+                with open(os.path.join(ckpt_dir, "episode.txt"), "w") as f:
+                    f.write(str(i + 1))
+            else:
+                print(
+                    f"[NaN-GUARD] episode {i + 1}: weights already non-finite - "
+                    f"not overwriting last_good_checkpoint",
+                    flush=True,
+                )
     return agent, env, training_dict
 
 
