@@ -22,11 +22,23 @@ def inv_var_weight(mus, sigmas):
     # Stack vectors together along first dimension
     mus = torch.stack(mus, dim=0)
     sigmas = torch.stack(sigmas, dim=0)
+    # Epsilon floor on variance - without it, a near-zero sigma (the model
+    # becoming extremely "confident"/degenerate in one of these Gaussian
+    # estimates, e.g. from MLP_sigma_g_path/MLP_sigma_g_mem collapsing
+    # toward 0) sends 1/sigma**2 to a huge value whose backward gradient
+    # (~1/sigma**3) can overflow to Inf/NaN even though the forward value
+    # itself still looks like an ordinary large-but-finite number. Found by
+    # bisecting a training run stuck emitting non-finite gradients on every
+    # single step from some point onward (loss and all its components were
+    # finite; torch.autograd.set_detect_anomaly pointed straight at this
+    # division). Matches the same epsilon-floor pattern already used for
+    # the value channel in whittington_2020.py's _value_for_history.
+    var = torch.clamp(sigmas**2, min=1e-6)
     # Calculate inverse variance weighted variance from sum over reciprocal of squared
     # sigmas
-    inv_var_var = 1.0 / torch.sum(1.0 / (sigmas**2), dim=0)
+    inv_var_var = 1.0 / torch.sum(1.0 / var, dim=0)
     # Calculate inverse variance weighted average
-    inv_var_avg = torch.sum(mus / (sigmas**2), dim=0) * inv_var_var
+    inv_var_avg = torch.sum(mus / var, dim=0) * inv_var_var
     # Convert weigthed variance to sigma
     inv_var_sigma = torch.sqrt(inv_var_var)
     # And return results
