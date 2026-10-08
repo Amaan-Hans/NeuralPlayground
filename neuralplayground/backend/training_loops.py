@@ -92,7 +92,8 @@ def episode_based_training_loop(
 def tem_training_loop(agent: AgentCore, env: Environment, n_episode: int, params: dict,
                       trajectory_seed: int = None, random_start: bool = False,
                       eval_fn=None, eval_interval: int = 1000, eval_save_path: str = None,
-                      rotate_environments: bool = False, scale_walk_by_size: bool = True):
+                      rotate_environments: bool = False, scale_walk_by_size: bool = True,
+                      control_shuffle_interval: int = None):
     """Training loop for agents and environments that use a TEM-based update.
 
     Parameters
@@ -141,6 +142,17 @@ def tem_training_loop(agent: AgentCore, env: Environment, n_episode: int, params
         dwell per environment with no mention of scaling it by world size
         (their worlds ranged 64-127 states). Only has an effect when
         rotate_environments is True.
+    control_shuffle_interval : int, optional
+        If set, every `control_shuffle_interval` episodes, EVERY slot's
+        control-landmark positions are re-randomized within its current
+        environment instance (DiscreteObjectEnvironment.
+        reshuffle_control_landmarks()) - value landmarks, decoy/remainder
+        objects, and all agent-side state (Hebbian memory, TD table,
+        visited-states, held_landmark) are untouched. Independent of
+        rotate_environments - a rotation also resets agent-side state for
+        whichever slot it hits and happens on each slot's own schedule;
+        this is a lighter perturbation on a fixed global schedule, on
+        every slot at once. None (default) disables this entirely.
 
     Returns
     -------
@@ -249,6 +261,12 @@ def tem_training_loop(agent: AgentCore, env: Environment, n_episode: int, params
                     low = max(1, int(round((walk_length_center - walk_it_window * 0.5) * size_scale[j])))
                     high = max(low + 1, int(round((walk_length_center + walk_it_window * 0.5) * size_scale[j])))
                     steps_until_switch[j] = int(np.random.randint(low, high))
+
+        if control_shuffle_interval and (i + 1) % control_shuffle_interval == 0:
+            # env.batch_size, not the rotate_environments-local n_envs -
+            # this must work whether or not rotation is also enabled.
+            for j in range(env.batch_size):
+                env.environments[j].reshuffle_control_landmarks()
 
         # Periodic evaluation: save plots and raw arrays every eval_interval
         # episodes, plus always at episode 1 (i == 0) so training-progress

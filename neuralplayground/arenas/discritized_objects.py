@@ -404,6 +404,54 @@ class DiscreteObjectEnvironment(Environment):
                 objects[i, :] = poss_objects[rand]
         return objects
 
+    def reshuffle_control_landmarks(self):
+        """Re-randomize control-landmark positions WITHIN this same
+        environment instance - value-landmark positions, decoy/remainder
+        objects at every other untouched state, and everything about the
+        agent (Hebbian memory, TD table, visited-states, held_landmark)
+        stay exactly as they are. A lighter-weight perturbation than a
+        full rotation (which replaces the whole environment instance and
+        resets all of that agent-side state too) - used by
+        tem_training_loop's control_shuffle_interval to vary which states
+        the control landmarks sit at periodically, independent of whether
+        a rotation happens to be due. No-op if n_control_landmarks == 0.
+        """
+        if self.n_control_landmarks == 0:
+            return
+        poss_objects = np.eye(self.n_objects)
+        n_special = self.n_landmarks + self.n_control_landmarks
+        current_ids = np.argmax(self.objects, axis=1)
+        value_states = {s for s in range(self.n_states) if current_ids[s] < self.n_landmarks}
+        old_control_states = [
+            s for s in range(self.n_states) if self.n_landmarks <= current_ids[s] < n_special
+        ]
+
+        # Release the old control states back to decoy/remainder, exactly
+        # matching generate_objects()'s own fallback logic.
+        if self.decoy_object_id is not None:
+            for s in old_control_states:
+                self.objects[s, :] = poss_objects[self.decoy_object_id]
+        else:
+            for s in old_control_states:
+                rand = random.randint(n_special, self.n_objects - 1)
+                self.objects[s, :] = poss_objects[rand]
+
+        # Draw NEW control-landmark states with the same reward-biased
+        # weighted-without-replacement sampling generate_objects() uses,
+        # excluding value-landmark states (never touch those).
+        candidate_states = [s for s in range(self.n_states) if s not in value_states]
+        state_xy = self.xy_combination.reshape(-1, 2)[candidate_states]
+        if self.reward_location is not None:
+            dist = np.linalg.norm(state_xy - np.array(self.reward_location), axis=1)
+            weights = np.exp(-dist / self.landmark_bias_scale)
+        else:
+            weights = np.ones(len(candidate_states))
+        new_control_states = self._weighted_sample_without_replacement(
+            candidate_states, weights.tolist(), self.n_control_landmarks
+        )
+        for i, state_id in enumerate(new_control_states):
+            self.objects[state_id, :] = poss_objects[self.n_landmarks + i]
+
     @staticmethod
     def _weighted_sample_without_replacement(population, weights, k):
         """Sample k distinct items from population, weighted, without replacement.

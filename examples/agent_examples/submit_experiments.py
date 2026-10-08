@@ -64,6 +64,38 @@ def run_training_job(env_overrides: dict):
     return env_overrides
 
 
+def run_training_job_group(env_overrides_list: list):
+    """Like run_training_job, but packs several runs into ONE submitit job
+    (hence one slot against the account's MaxJobsPerUser QoS cap), each as
+    its own subprocess launched concurrently via subprocess.Popen and
+    waited on at the end - NOT via slurm_tasks_per_node>1, which previously
+    caused multiple copies of the training script to race on the same
+    TEM_SAVE_ROOT (see the tasks_per_node=1 comment in main()). That bug
+    can't recur here: each subprocess in this group has its own distinct
+    env_overrides (different seed/condition), so each gets a distinct
+    TEM_SAVE_ROOT - no collision. Exists because the account's job-level
+    concurrency cap (6 running at once, checked via `sacctmgr show qos`)
+    is the real bottleneck, not per-node CPU/RAM - fewer, fatter jobs that
+    each run several trainings in parallel get more real concurrency than
+    the same total run count spread across more, thinner jobs ever could,
+    given that cap.
+    """
+    procs = []
+    for env_overrides in env_overrides_list:
+        env = os.environ.copy()
+        env.update(env_overrides)
+        proc = subprocess.Popen([sys.executable, "whittington_2020_run.py"], cwd=HERE, env=env)
+        procs.append((proc, env_overrides))
+
+    failures = []
+    for proc, env_overrides in procs:
+        if proc.wait() != 0:
+            failures.append(env_overrides)
+    if failures:
+        raise RuntimeError(f"{len(failures)} run(s) in this group failed: {failures}")
+    return env_overrides_list
+
+
 def build_env_overrides(seed: int, condition: str, args: argparse.Namespace) -> dict:
     tag = f"_{args.run_tag}" if args.run_tag else ""
     save_root = os.path.join(
@@ -96,6 +128,8 @@ def build_env_overrides(seed: int, condition: str, args: argparse.Namespace) -> 
         overrides["TEM_N_EPISODE"] = str(args.n_episode)
     if args.eval_interval is not None:
         overrides["TEM_EVAL_INTERVAL"] = str(args.eval_interval)
+    if args.control_shuffle_interval is not None:
+        overrides["TEM_CONTROL_SHUFFLE_INTERVAL"] = str(args.control_shuffle_interval)
     return overrides
 
 
@@ -167,6 +201,25 @@ def main():
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--n-episode", type=int, default=None)
     parser.add_argument("--eval-interval", type=int, default=None)
+    parser.add_argument(
+        "--control-shuffle-interval", type=int, default=None,
+        help="Re-randomize control-landmark positions (reward-biased, same mechanism as "
+             "initial placement) every N episodes, within the SAME environment instance - "
+             "value landmarks, decoy/remainder objects, and all agent-side state (Hebbian "
+             "memory, TD table, visited-states) are untouched. Independent of --no-rotate "
+             "(a full rotation also resets agent-side state; this doesn't). Off by default.",
+    )
+    parser.add_argument(
+        "--runs-per-node", type=int, default=1,
+        help="Pack this many (seed, condition) runs into each submitted job, run concurrently "
+             "as sibling subprocesses on one node (see run_training_job_group) - NOT via Slurm "
+             "tasks_per_node, which previously caused multiple copies to race on the same "
+             "TEM_SAVE_ROOT. Exists because the account's MaxJobsPerUser QoS cap limits "
+             "CONCURRENT jobs regardless of per-node resources (check with `sacctmgr show qos "
+             "<qos-name>`) - fewer, fatter jobs get more real concurrency under that cap than "
+             "the same run count spread across more jobs. --cpus-per-task/--mem-gb are each "
+             "requested ONCE PER RUN in the group and multiplied up automatically.",
+    )
     parser.add_argument("--partition", default="bigbatch")
     parser.add_argument("--qos", default="mss_bigbatch")
     parser.add_argument(
@@ -214,8 +267,11 @@ def main():
             slurm_qos=args.qos,
             slurm_gres=args.gres if args.gres else None,
             slurm_time=int(args.time_hours * 60),
-            slurm_cpus_per_task=args.cpus_per_task,
-            slurm_mem=f"{args.mem_gb}G",
+            # --cpus-per-task/--mem-gb are PER RUN; a group running
+            # --runs-per-node runs concurrently on one node needs that many
+            # times the resources, requested as a single Slurm allocation.
+            slurm_cpus_per_task=args.cpus_per_task * args.runs_per_node,
+            slurm_mem=f"{args.mem_gb * args.runs_per_node}G",
             slurm_job_name="tem_r",
             # Without this, submitit's generated sbatch script never sets
             # --ntasks/--ntasks-per-node at all, and this cluster's Slurm
@@ -228,25 +284,38 @@ def main():
             tasks_per_node=1,
         )
 
-    jobs = []
-    for seed in args.seeds:
-        for condition in args.conditions:
-            overrides = build_env_overrides(seed, condition, args)
-            job = executor.submit(run_training_job, overrides)
-            jobs.append((seed, condition, job))
-            print(f"Submitted seed={seed} condition={condition} -> job id {job.job_id}")
+    # Build every (seed, condition) run's overrides first, then chunk into
+    # groups of --runs-per-node, each submitted as ONE job.
+    runs = [
+        (seed, condition, build_env_overrides(seed, condition, args))
+        for seed in args.seeds
+        for condition in args.conditions
+    ]
+    chunk_size = max(1, args.runs_per_node)
+    chunks = [runs[i:i + chunk_size] for i in range(0, len(runs), chunk_size)]
 
-    print(f"\n{len(jobs)} job(s) submitted. Logs: {log_dir}")
+    jobs = []
+    for chunk in chunks:
+        overrides_list = [c[2] for c in chunk]
+        labels = [f"seed={c[0]} condition={c[1]}" for c in chunk]
+        if len(chunk) == 1:
+            job = executor.submit(run_training_job, overrides_list[0])
+        else:
+            job = executor.submit(run_training_job_group, overrides_list)
+        jobs.append((labels, job))
+        print(f"Submitted [{', '.join(labels)}] -> job id {job.job_id}")
+
+    print(f"\n{len(jobs)} job(s) submitted ({len(runs)} run(s) total). Logs: {log_dir}")
     if args.local:
         print("Waiting for local jobs to finish (this blocks; a real Slurm submission returns immediately)...")
         failures = []
-        for seed, condition, job in jobs:
+        for labels, job in jobs:
             try:
                 job.result()
-                print(f"  done: seed={seed} condition={condition}")
+                print(f"  done: [{', '.join(labels)}]")
             except Exception as exc:  # noqa: BLE001 - surface any job failure, then keep checking the rest
-                failures.append((seed, condition, exc))
-                print(f"  FAILED: seed={seed} condition={condition} -> {exc}")
+                failures.append((labels, exc))
+                print(f"  FAILED: [{', '.join(labels)}] -> {exc}")
         if failures:
             raise RuntimeError(f"{len(failures)} job(s) failed: {failures}")
     else:

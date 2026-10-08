@@ -92,6 +92,12 @@ ROTATE_ENVIRONMENTS = os.environ.get("TEM_ROTATE_ENVIRONMENTS", "1") == "1"
 # 2020's STAR Methods description (fixed ~2000-5000 raw-step dwell,
 # independent of their worlds' 64-127-state size range).
 SCALE_WALK_BY_SIZE  = os.environ.get("TEM_SCALE_WALK_BY_SIZE", "1") == "1"
+# Re-randomize control-landmark positions every N episodes within the SAME
+# environment instance (value landmarks, decoy/remainder objects, and all
+# agent-side state untouched) - see DiscreteObjectEnvironment.
+# reshuffle_control_landmarks(). None (default) disables this entirely.
+_CONTROL_SHUFFLE_ENV = os.environ.get("TEM_CONTROL_SHUFFLE_INTERVAL")
+CONTROL_SHUFFLE_INTERVAL = int(_CONTROL_SHUFFLE_ENV) if _CONTROL_SHUFFLE_ENV else None
 # Override params["walk_it_min"]/["walk_it_max"] (in n_rollout-step chunks,
 # i.e. raw steps / n_rollout) - e.g. to set the paper's literal ~2000-5000
 # raw-step dwell with n_rollout=20: TEM_WALK_IT_MIN=100 TEM_WALK_IT_MAX=250.
@@ -241,6 +247,7 @@ training_loop_params = {
     "eval_save_path": save_path,
     "rotate_environments": ROTATE_ENVIRONMENTS,
     "scale_walk_by_size": SCALE_WALK_BY_SIZE,
+    "control_shuffle_interval": CONTROL_SHUFFLE_INTERVAL,
 }
 
 sim = SingleSim(
@@ -264,6 +271,7 @@ if __name__ == "__main__":
         f"scale_walk_by_size={SCALE_WALK_BY_SIZE} walk_it_min={params['walk_it_min']} "
         f"walk_it_max={params['walk_it_max']} "
         f"n_control_landmarks={N_CONTROL_LANDMARKS} decoy_object_id={DECOY_OBJECT_ID} "
+        f"control_shuffle_interval={CONTROL_SHUFFLE_INTERVAL} "
         f"load_checkpoint={LOAD_CHECKPOINT}"
     )
     sim.run_sim(save_path)
