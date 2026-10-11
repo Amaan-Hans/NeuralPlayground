@@ -141,6 +141,18 @@ class DiscreteObjectEnvironment(Environment):
         # None (default) reproduces the original per-state-random decoy
         # layout.
         self.decoy_object_id = env_kwargs.get("decoy_object_id", None)
+        # Optional dedicated reward-marker object id: when set (and
+        # reward_location is set), the state nearest reward_location
+        # ALWAYS gets this one object id, reserved exclusively for it -
+        # landmarks/control landmarks/decoys never land there, so the
+        # model sees a consistent, learnable "this is the reward" signal
+        # every time, in every environment instance. Without this, the
+        # reward is a pure location-based trigger with no sensory
+        # identity of its own, and the agent can never predict arrival
+        # at it in advance (only sense it after the fact) - see
+        # tem_playground's move_reward/reward_landmark_index work, which
+        # found exactly this gap in an interactive setting first.
+        self.reward_object_id = env_kwargs.get("reward_object_id", None)
         self.arena_limits = np.array(
             [
                 [self.arena_x_limits[0], self.arena_x_limits[1]],
@@ -349,6 +361,10 @@ class DiscreteObjectEnvironment(Environment):
         objects = np.zeros(shape=(self.n_states, self.n_objects))
 
         n_special = self.n_landmarks + self.n_control_landmarks
+        reward_state_id = None
+        if self.reward_object_id is not None and self.reward_location is not None:
+            reward_state_id = int(self.pos_to_state(np.array(self.reward_location)))
+
         if n_special > 0:
             explicit_states = []
             if self.landmark_positions:
@@ -362,11 +378,19 @@ class DiscreteObjectEnvironment(Environment):
                         )
                     explicit_states.append(state_id)
 
+            # The reward's own state is reserved for reward_object_id (see
+            # below) before landmarks are drawn, so a landmark/control
+            # landmark can never land on it by chance - the reward marker
+            # always occupies exactly that one state, consistently.
+            reserved_states = set(explicit_states)
+            if reward_state_id is not None:
+                reserved_states.add(reward_state_id)
+
             n_remaining = n_special - len(explicit_states)
             remaining_special_states = []
             if n_remaining > 0:
                 candidate_states = [
-                    s for s in range(self.n_states) if s not in set(explicit_states)
+                    s for s in range(self.n_states) if s not in reserved_states
                 ]
                 state_xy = self.xy_combination.reshape(-1, 2)[candidate_states]
                 if self.reward_location is not None:
@@ -387,15 +411,22 @@ class DiscreteObjectEnvironment(Environment):
             # identical to drawing k directly), so value-landmark placement
             # statistics are unchanged when n_control_landmarks == 0.
             special_states = explicit_states + remaining_special_states
-            decoy_states = [s for s in range(self.n_states) if s not in set(special_states)]
+            decoy_states = [
+                s for s in range(self.n_states)
+                if s not in set(special_states) and s != reward_state_id
+            ]
             for special_id, state_id in enumerate(special_states):
                 objects[state_id, :] = poss_objects[special_id]
+            if reward_state_id is not None:
+                objects[reward_state_id, :] = poss_objects[self.reward_object_id]
             if self.decoy_object_id is not None:
                 for state_id in decoy_states:
                     objects[state_id, :] = poss_objects[self.decoy_object_id]
             else:
                 for state_id in decoy_states:
                     rand = random.randint(n_special, self.n_objects - 1)
+                    while rand == self.reward_object_id:
+                        rand = random.randint(n_special, self.n_objects - 1)
                     objects[state_id, :] = poss_objects[rand]
         else:
             # Generate landscape of objects in each environment
@@ -438,8 +469,14 @@ class DiscreteObjectEnvironment(Environment):
 
         # Draw NEW control-landmark states with the same reward-biased
         # weighted-without-replacement sampling generate_objects() uses,
-        # excluding value-landmark states (never touch those).
-        candidate_states = [s for s in range(self.n_states) if s not in value_states]
+        # excluding value-landmark states (never touch those) and the
+        # reward's own reserved state (if any - see reward_object_id).
+        reward_state_id = None
+        if self.reward_object_id is not None and self.reward_location is not None:
+            reward_state_id = int(self.pos_to_state(np.array(self.reward_location)))
+        candidate_states = [
+            s for s in range(self.n_states) if s not in value_states and s != reward_state_id
+        ]
         state_xy = self.xy_combination.reshape(-1, 2)[candidate_states]
         if self.reward_location is not None:
             dist = np.linalg.norm(state_xy - np.array(self.reward_location), axis=1)

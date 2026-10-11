@@ -81,6 +81,13 @@ N_LANDMARKS         = int(os.environ.get("TEM_N_LANDMARKS", "10"))
 N_CONTROL_LANDMARKS = int(os.environ.get("TEM_N_CONTROL_LANDMARKS", "10"))
 _decoy_env          = os.environ.get("TEM_DECOY_OBJECT_ID", "30")      # "" (empty) = original random decoys
 DECOY_OBJECT_ID     = int(_decoy_env) if _decoy_env != "" else None
+# Dedicated reward-marker object id - the state nearest reward_location
+# ALWAYS carries this one object, reserved exclusively for it (see
+# DiscreteObjectEnvironment.reward_object_id). "" (empty) disables this,
+# reproducing the original behaviour where reward is a pure location
+# trigger with no sensory identity of its own.
+_reward_obj_env     = os.environ.get("TEM_REWARD_OBJECT_ID", "44")
+REWARD_OBJECT_ID    = int(_reward_obj_env) if _reward_obj_env != "" else None
 LANDMARK_BIAS_SCALE = 2.0
 VARY_ARENA_SIZE     = os.environ.get("TEM_VARY_ARENA_SIZE", "1") == "1"  # historical 8/10/12-mix vs uniform
 ARENA_SIDE          = float(os.environ.get("TEM_ARENA_SIDE", "10"))    # only used when VARY_ARENA_SIZE=0
@@ -208,6 +215,7 @@ discrete_env_params = {
     "n_landmarks": N_LANDMARKS,
     "n_control_landmarks": N_CONTROL_LANDMARKS,
     "decoy_object_id": DECOY_OBJECT_ID,
+    "reward_object_id": REWARD_OBJECT_ID,
     "reward_location": REWARD_LOCATION,
     "landmark_bias_scale": LANDMARK_BIAS_SCALE,
 }
@@ -271,6 +279,7 @@ if __name__ == "__main__":
         f"scale_walk_by_size={SCALE_WALK_BY_SIZE} walk_it_min={params['walk_it_min']} "
         f"walk_it_max={params['walk_it_max']} "
         f"n_control_landmarks={N_CONTROL_LANDMARKS} decoy_object_id={DECOY_OBJECT_ID} "
+        f"reward_object_id={REWARD_OBJECT_ID} "
         f"control_shuffle_interval={CONTROL_SHUFFLE_INTERVAL} "
         f"load_checkpoint={LOAD_CHECKPOINT}"
     )

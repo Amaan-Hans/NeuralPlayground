@@ -112,6 +112,7 @@ def build_env_overrides(seed: int, condition: str, args: argparse.Namespace) -> 
         "TEM_ROTATE_ENVIRONMENTS": "0" if args.no_rotate else "1",
         "TEM_N_CONTROL_LANDMARKS": str(args.n_control_landmarks),
         "TEM_DECOY_OBJECT_ID": "" if args.decoy_object_id < 0 else str(args.decoy_object_id),
+        "TEM_REWARD_OBJECT_ID": "" if args.reward_object_id < 0 else str(args.reward_object_id),
         "TEM_SAVE_MULTIENV_CSV": "0" if args.no_multienv_csv else "1",
         "TEM_BATCH_SIZE": str(args.batch_size),
         "TEM_SCALE_WALK_BY_SIZE": "0" if args.no_walk_scale_by_size else "1",
@@ -197,6 +198,14 @@ def main():
     parser.add_argument("--no-rotate", action="store_true")
     parser.add_argument("--n-control-landmarks", type=int, default=10)
     parser.add_argument("--decoy-object-id", type=int, default=30)
+    parser.add_argument(
+        "--reward-object-id", type=int, default=44,
+        help="Dedicated object id always placed at the state nearest reward_location, "
+             "reserved exclusively for it - landmarks/control landmarks/decoys never land "
+             "there. Gives the reward a consistent sensory identity the model can actually "
+             "learn to predict in advance, instead of being a pure location trigger it can "
+             "only sense after arriving. Pass -1 to disable (original behaviour).",
+    )
     parser.add_argument("--no-multienv-csv", action="store_true")
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--n-episode", type=int, default=None)
