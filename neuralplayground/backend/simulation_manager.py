@@ -314,8 +314,15 @@ class SingleSim(object):
         original_stdout = sys.stdout
         original_stderr = sys.stderr
 
-        sys.stdout = open(run_log_path, "w")
-        sys.stderr = open(error_log_path, "w")
+        # buffering=1 (line-buffered) - without it, Python's default full
+        # block-buffering for a non-TTY file means prints (e.g. "TEM using
+        # device: ...", NaN-GUARD messages) can sit unwritten for a long
+        # time, making run.log an unreliable way to check a job's live
+        # status (observed: polling it right after submission to detect
+        # CPU vs GPU placement saw nothing for 5+ minutes on jobs that
+        # were actually running fine).
+        sys.stdout = open(run_log_path, "w", buffering=1)
+        sys.stderr = open(error_log_path, "w", buffering=1)
 
         # Initializing the state log
         self._update_log_state("running", state_log_path)

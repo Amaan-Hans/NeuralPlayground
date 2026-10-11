@@ -58,6 +58,7 @@ def run_training_job(env_overrides: dict):
     """
     env = os.environ.copy()
     env.update(env_overrides)
+    env["PYTHONUNBUFFERED"] = "1"  # flush prints (e.g. "TEM using device: ...") immediately, not on process exit
     result = subprocess.run([sys.executable, "whittington_2020_run.py"], cwd=HERE, env=env)
     if result.returncode != 0:
         raise RuntimeError(f"whittington_2020_run.py failed (env={env_overrides})")
@@ -84,6 +85,7 @@ def run_training_job_group(env_overrides_list: list):
     for env_overrides in env_overrides_list:
         env = os.environ.copy()
         env.update(env_overrides)
+        env["PYTHONUNBUFFERED"] = "1"  # flush prints (e.g. "TEM using device: ...") immediately, not on process exit
         proc = subprocess.Popen([sys.executable, "whittington_2020_run.py"], cwd=HERE, env=env)
         procs.append((proc, env_overrides))
 
