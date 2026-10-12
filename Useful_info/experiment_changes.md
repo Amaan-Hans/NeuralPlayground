@@ -689,3 +689,140 @@ run-tag `faithfulregime_v2_gradclip`: 64884 (seed42 RM), 64885 (seed1 RM),
 job's `run.log` for `[NaN-GUARD]` if it recurs even with clipping — if so,
 `max_norm=10.0` may need lowering, or gradient magnitude alone isn't the
 full story.
+
+---
+
+## Update 2026-10-12: third NaN root cause found (`inv_var_weight`), two new
+## environment features (`reward_object_id`, periodic control-landmark
+## reshuffling), cluster QoS/job-packing workaround, and a new campaign whose
+## benchmark shows two regressions vs. the previous campaign
+
+### Third NaN-corruption incident — real root cause this time
+
+Gradient clipping (`f125ac4` above) reduced but did not eliminate the
+corruption. Root cause, found by bisecting a corrupted run down to the exact
+operation: **`inv_var_weight()` in `whittington_2020_utils.py` divides by
+`sigmas**2` with no floor at all** — if a sigma estimate ever landed at or
+near exactly 0, this produced `inf`/`nan` in one step, independent of
+gradient magnitude (so clipping couldn't catch it — the corruption happens
+*before* backward, not in the optimiser step). Fixed with
+`torch.clamp(sigmas**2, min=1e-6)`. Combined with the gradient-clip guard and
+a resumable last-known-good checkpoint (saved alongside the periodic eval,
+so a corrupted run can resume from the last clean point instead of
+restarting from episode 0), this is now defense-in-depth across three
+independent failure points: the value-ratio normalisation (`7f67178`), the
+optimiser step (`f125ac4`), and the loss-weighting division (this fix).
+
+### New environment feature: `reward_object_id` — a dedicated, never-moving object that marks the reward location
+
+`DiscreteObjectEnvironment` now accepts `reward_object_id` (env_kwargs). If
+set, `generate_objects()` reserves the state nearest `reward_location`
+*exclusively* for this object id, before any landmark/control-landmark/decoy
+sampling runs (excluded from both `candidate_states` and `decoy_states` so
+nothing else can land there). `reshuffle_control_landmarks()` also excludes
+this reserved state from its own candidate pool, so the reward marker never
+gets displaced by a reshuffle. Verified in isolation: object always at the
+reward state, survives repeated reshuffles, exact expected counts with zero
+stray "other" states. Rationale: give the agent one object identity that
+*always* co-occurs with reward, independent of which value/control landmark
+happens to be nearby — a cleaner, more direct reward-location cue than
+relying on proximity-biased landmark placement alone.
+
+### New environment feature: periodic control-landmark reshuffling
+
+`DiscreteObjectEnvironment.reshuffle_control_landmarks()` + a
+`control_shuffle_interval` parameter on `tem_training_loop()` — every N
+episodes, control-landmark identities are redrawn (uniform, excluding
+reserved landmark/reward states) while real (value-carrying) landmarks stay
+fixed. Rationale: without this, a network could in principle learn to
+decode value from a *specific* control landmark's fixed position/identity
+rather than failing to decode value at all — periodic reshuffling forces any
+"control landmark → no value" null result to hold across multiple physical
+identities, not just one.
+
+**Interval choice, revisited:** first implementation used
+`control_shuffle_interval=100`, matching `rotate_environments`' own
+per-100-episode rotation cadence. Asked directly whether 100 was the right
+choice for "creating a bias to value-carrying objects that predict reward
+position" — assessment was that 100 is too close to the rotation timescale
+itself (shuffling and rotating at the same cadence conflates the two
+effects), and it was lowered to **25** for the retrain below. This has NOT
+been validated to be better, only reasoned to be more decorrelated from
+rotation — see the benchmark finding below, which suggests the change may
+have had unintended side effects.
+
+### Cluster workflow: `--runs-per-node` job packing, to work around a hard QoS cap
+
+`sacctmgr show qos mss_bigbatch` confirmed `MaxJobsPerUser=6` — a hard
+concurrency cap regardless of how jobs are packed, separate from the
+partition's general availability. Added `run_training_job_group()` to
+`submit_experiments.py` plus a `--runs-per-node` CLI arg: packs N
+(seed, condition) runs into one Slurm job as concurrent `subprocess.Popen`
+siblings on the same node (scaling `slurm_cpus_per_task`/`slurm_mem`
+accordingly), so more than 6 runs can be in flight at once without exceeding
+the per-user job count. Also added `env["PYTHONUNBUFFERED"] = "1"` to every
+subprocess launch — see the buffering fix below for why this matters.
+
+### GPU vs CPU node detection — no Slurm-side metadata exists on this cluster
+
+`scontrol show node` returns `(null)` for Gres/AvailableFeatures/
+ActiveFeatures even on confirmed-GPU nodes — there is no way to query which
+node is a GPU node before landing on it, and direct SSH from the login node
+into a compute node is blocked (password auth, no key). The only reliable
+check is empirical, from inside a running job: grep `run.log` for "TEM using
+device: cuda" vs "cpu". This was unreliable at first because
+`simulation_manager.py` opened `run.log`/`error.log` with Python's default
+full block-buffering (`sys.stdout = open(run_log_path, "w")`) — the device
+line could sit unflushed for minutes even on a perfectly healthy job, which
+nearly caused a good GPU job to be cancelled prematurely by an automated
+retry loop that saw an empty log and assumed it had landed on CPU. Fixed by
+opening both logs with `buffering=1` (`ea497b0`). **Known GPU nodes:**
+mscluster63, 71, 72, 79, 80, 81, 84. **Known CPU-only nodes:** mscluster44,
+48, 57, 65, 83 (also recorded in the cluster-access memory file). Also
+confirmed: `submit_experiments.py` must pass `--gres ''` on this cluster —
+the default `--gres gpu:1` fails with "Invalid generic resource (gres)
+specification" since GRES tracking isn't configured here at all.
+
+### Campaign: `ctrlshuffle25_rewardobj_50k` — 5 seeds × 2 conditions, 50k episodes
+
+Launched with `control_shuffle_interval=25` (down from 100) and
+`reward_object_id=44` (new), otherwise matching the previous
+`ctrlshuffle_50k` campaign's config (jobs 66867-66871, seeds 42/7/1/2/3,
+`how_to_run.md`/cluster conventions unchanged). Benchmarked with the same
+two probes used for every previous campaign (`accuracy_probe.py`,
+1000-episode frozen-weight; `value_decode_probe.py`, the `reward_prediction`
+project's `has_value` classifier methodology, pooled across all 5 seeds).
+
+**Finding 1 — the reward-modulated accuracy advantage disappeared:**
+
+| | baseline x_gt (mean) | RM x_gt (mean) | RM − baseline |
+|---|---|---|---|
+| `ctrlshuffle_50k` (old, interval=100, no reward obj) | 83.5% | 85.4% | **+1.9pp**, consistent across seeds |
+| `ctrlshuffle25_rewardobj_50k` (new, interval=25, reward_object_id=44) | 84.1% | 83.6% | **−0.5pp**, inconsistent per seed |
+
+Per-seed RM−baseline in the new campaign: seed42 +2.0pp, seed7 +0.3pp,
+seed1 **−4.3pp**, seed2 −0.1pp, seed3 −0.3pp. x_p stayed saturated at 100%
+in every run, so this is purely a grid/place (x_g/x_gt) effect. The old
+campaign's clean, consistent RM advantage is gone — it's now close to a
+coin-flip per seed, with seed 1 notably worse under RM.
+
+**Finding 2 — shape/value dissociation got noisier, not cleaner:**
+
+`has_value` decodability (pooled, held-out test, group-leakage-safe split):
+accuracy=0.847, balanced_accuracy=0.822, AUC=0.920, permutation p=0.0033 —
+still highly significant overall. But `bl_real` (false-positive rate — the
+rate at which baseline's real-landmark population, which never carries
+value, is wrongly decoded as value-carrying) rose from **0.113** (old
+campaign) to **0.394 pooled** (new campaign), with large per-seed spread:
+seed42=0.000, seed7=0.538, seed1=0.744, seed2=0.259, seed3=0.286.
+
+**Interpretation (not yet validated by ablation):** both regressions moved
+together when interval and reward-object were changed simultaneously, which
+is suggestive but not conclusive that they share a cause — more frequent
+control-landmark reshuffling (or its interaction with the new reward object)
+may be destabilizing something that mattered for both the RM accuracy edge
+and the clean shape/value dissociation. Which of the two changes
+(`control_shuffle_interval` 100→25, vs. adding `reward_object_id`) is
+responsible has not been isolated — would need a controlled ablation (e.g.
+interval=25 without the reward object, or interval=100 with it) to pin down
+before drawing further conclusions from this campaign's results.
