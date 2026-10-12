@@ -118,6 +118,7 @@ def build_env_overrides(seed: int, condition: str, args: argparse.Namespace) -> 
         "TEM_SAVE_MULTIENV_CSV": "0" if args.no_multienv_csv else "1",
         "TEM_BATCH_SIZE": str(args.batch_size),
         "TEM_SCALE_WALK_BY_SIZE": "0" if args.no_walk_scale_by_size else "1",
+        "TEM_LC_GATING": "1" if args.lc_gating else "0",
     }
     if args.size_cycle is not None:
         overrides["TEM_SIZE_CYCLE"] = args.size_cycle
@@ -133,6 +134,10 @@ def build_env_overrides(seed: int, condition: str, args: argparse.Namespace) -> 
         overrides["TEM_EVAL_INTERVAL"] = str(args.eval_interval)
     if args.control_shuffle_interval is not None:
         overrides["TEM_CONTROL_SHUFFLE_INTERVAL"] = str(args.control_shuffle_interval)
+    if args.lc_beta is not None:
+        overrides["TEM_LC_BETA"] = str(args.lc_beta)
+    if args.lc_eps0_tau is not None:
+        overrides["TEM_LC_EPS0_TAU"] = str(args.lc_eps0_tau)
     return overrides
 
 
@@ -219,6 +224,23 @@ def main():
              "value landmarks, decoy/remainder objects, and all agent-side state (Hebbian "
              "memory, TD table, visited-states) are untouched. Independent of --no-rotate "
              "(a full rotation also resets agent-side state; this doesn't). Off by default.",
+    )
+    parser.add_argument(
+        "--lc-gating", action="store_true",
+        help="Enable LC-inspired prediction-error gating of the Hebbian memory write: "
+             "g(eps_t) = sigmoid(lc_beta*(eps_t-eps0)) scales the write rate, eps_t the "
+             "current step's one-step sensory prediction error and eps0 a running EMA of "
+             "it. Independent of --conditions (the value/reward mechanism) - combine both "
+             "for TEM-R-LC. Off by default.",
+    )
+    parser.add_argument(
+        "--lc-beta", type=float, default=None,
+        help="Override params['lc_beta'] (gate steepness). None = parameters.py default (5.0).",
+    )
+    parser.add_argument(
+        "--lc-eps0-tau", type=float, default=None,
+        help="Override params['lc_eps0_tau'] (EMA smoothing rate for the running eps0 "
+             "baseline). None = parameters.py default (0.01).",
     )
     parser.add_argument(
         "--runs-per-node", type=int, default=1,

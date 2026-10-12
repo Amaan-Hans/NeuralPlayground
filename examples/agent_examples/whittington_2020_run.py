@@ -57,6 +57,10 @@ Useful_info/experiment_changes.md).
 """
 
 import os
+import random
+
+import numpy as np
+import torch
 
 from neuralplayground.agents.whittington_2020_extras import (
     whittington_2020_parameters as parameters,
@@ -75,6 +79,20 @@ from neuralplayground.experiments import Sargolini2006Data
 USE_REWARD          = os.environ.get("TEM_USE_REWARD", "0") == "1"      # False = baseline, True = TEM-R
 TEST_MODE           = os.environ.get("TEM_TEST_MODE", "0") == "1"      # True = 10-episode smoke test
 TRAJECTORY_SEED     = int(os.environ.get("TEM_SEED", "123"))
+# Seed all three RNG streams here, at the EARLIEST point, before agent/env
+# construction - not just torch (Xavier init of agent.tem's weights) but
+# also numpy: Model.init_trainable() initialises g_init/logsig_g_init (both
+# trainable nn.ParameterList's) via scipy.stats.truncnorm.rvs(), which draws
+# from numpy's global RNG, at agent-construction time - i.e. before
+# tem_training_loop's own random.seed/np.random.seed calls ever run (those
+# only cover object-layout generation and the action sequence, both of
+# which happen inside env.reset(), after construction). Without seeding
+# numpy here too, g_init/logsig_g_init (and so everything downstream of
+# them) differ across separate process runs even with the same TEM_SEED.
+# training_loop's later re-seeding with the same value is then a no-op.
+random.seed(TRAJECTORY_SEED)
+np.random.seed(TRAJECTORY_SEED)
+torch.manual_seed(TRAJECTORY_SEED)
 TD_ALPHA            = 0.1
 TD_GAMMA            = 0.95
 N_LANDMARKS         = int(os.environ.get("TEM_N_LANDMARKS", "10"))
@@ -105,6 +123,14 @@ SCALE_WALK_BY_SIZE  = os.environ.get("TEM_SCALE_WALK_BY_SIZE", "1") == "1"
 # reshuffle_control_landmarks(). None (default) disables this entirely.
 _CONTROL_SHUFFLE_ENV = os.environ.get("TEM_CONTROL_SHUFFLE_INTERVAL")
 CONTROL_SHUFFLE_INTERVAL = int(_CONTROL_SHUFFLE_ENV) if _CONTROL_SHUFFLE_ENV else None
+# TEM-LC: gate the Hebbian memory write by one-step prediction error, g(eps_t)
+# = sigmoid(lc_beta*(eps_t-eps0)). Independent of USE_REWARD - the 4 testable
+# conditions are the 2x2 of {USE_REWARD, LC_GATING}. See Model.iteration/
+# Model.hebbian (whittington_2020_model.py) and parameters.py for the
+# mechanism and defaults.
+LC_GATING           = os.environ.get("TEM_LC_GATING", "0") == "1"
+_LC_BETA_ENV        = os.environ.get("TEM_LC_BETA")
+_LC_TAU_ENV         = os.environ.get("TEM_LC_EPS0_TAU")
 # Override params["walk_it_min"]/["walk_it_max"] (in n_rollout-step chunks,
 # i.e. raw steps / n_rollout) - e.g. to set the paper's literal ~2000-5000
 # raw-step dwell with n_rollout=20: TEM_WALK_IT_MIN=100 TEM_WALK_IT_MAX=250.
@@ -157,6 +183,8 @@ REWARD_LOCATION = [_reward_coord, _reward_coord]
 _SAVE_ROOT = os.environ.get("TEM_SAVE_ROOT")
 
 _condition = "reward_modulated" if USE_REWARD else "baseline"
+if LC_GATING:
+    _condition += "_lc"
 simulation_id = f"TEM_{_condition}_sim"
 _results_root = "results_sim_test" if TEST_MODE else "results_sim"
 save_path = os.path.join(_SAVE_ROOT, _condition) if _SAVE_ROOT else os.path.join(os.getcwd(), _results_root, _condition)
@@ -186,6 +214,11 @@ if _WALK_IT_MAX_ENV is not None:
     params["walk_it_max"] = int(_WALK_IT_MAX_ENV)
 if _WALK_IT_MIN_ENV is not None or _WALK_IT_MAX_ENV is not None:
     params["walk_it_window"] = 0.2 * (params["walk_it_max"] - params["walk_it_min"])
+params["use_lc_gating"] = LC_GATING
+if _LC_BETA_ENV is not None:
+    params["lc_beta"] = float(_LC_BETA_ENV)
+if _LC_TAU_ENV is not None:
+    params["lc_eps0_tau"] = float(_LC_TAU_ENV)
 full_agent_params = params.copy()
 # TEM-R doesn't widen n_x (raw one-hot vocabulary) at all: V(landmark) reaches
 # TEM by being written into the dedicated trailing dimension of the compressed
@@ -281,6 +314,7 @@ if __name__ == "__main__":
         f"n_control_landmarks={N_CONTROL_LANDMARKS} decoy_object_id={DECOY_OBJECT_ID} "
         f"reward_object_id={REWARD_OBJECT_ID} "
         f"control_shuffle_interval={CONTROL_SHUFFLE_INTERVAL} "
+        f"lc_gating={LC_GATING} lc_beta={params['lc_beta']} lc_eps0_tau={params['lc_eps0_tau']} "
         f"load_checkpoint={LOAD_CHECKPOINT}"
     )
     sim.run_sim(save_path)

@@ -219,6 +219,24 @@ def parameters():
     params["eta"] = 0.5
     # Hebbian retrieval decay term
     params["kappa"] = 0.8
+    # ---- TEM-LC: locus-coeruleus-inspired prediction-error gating
+    # Off by default so baseline/TEM-R behaviour is completely unaffected.
+    # When True, the Hebbian write (both M[0] and, if used, M[1]) is scaled
+    # by g(eps_t) = sigmoid(lc_beta * (eps_t - eps0)), eps_t the current
+    # step's one-step sensory prediction error and eps0 a running EMA of it
+    # (see Model.iteration/Model.hebbian). Independent of use_reward.
+    params["use_lc_gating"] = False
+    # Gate steepness (beta). Starting point only - tune empirically via
+    # inspect_lc_gate_tuning.py before a full run: too high saturates the
+    # gate near 0/1 immediately (no learning signal, or no gating at all);
+    # too low leaves the gate near 0.5 everywhere (collapses to baseline
+    # Hebbian regardless of eps_t).
+    params["lc_beta"] = 5.0
+    # EMA smoothing rate (tau) for the running eps0 baseline. Smaller = eps0
+    # adapts slowly, a more stable/discriminating baseline; larger = eps0
+    # tracks eps_t too tightly and the gate collapses toward ~0.5 everywhere.
+    # Starting point only - tune alongside lc_beta.
+    params["lc_eps0_tau"] = 0.01
     # Number of iterations of attractor dynamics for memory retrieval
     params["i_attractor"] = params["n_f_g"]
     # Maximum iterations of attractor dynamics per frequency in inference model, so you

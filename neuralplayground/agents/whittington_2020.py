@@ -128,6 +128,11 @@ class Whittington2020(AgentCore):
 
         self.use_reward = mod_kwargs.get("use_reward", False)
         self.pars = copy.deepcopy(params)
+        # Convenience mirror of self.pars["use_lc_gating"] for eval scripts -
+        # the actual gating behaviour comes from self.pars flowing into
+        # Model.hyper, this is just so callers can check agent.use_lc_gating
+        # without reaching into agent.pars directly (mirrors self.use_reward).
+        self.use_lc_gating = self.pars.get("use_lc_gating", False)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.tem = model.Model(self.pars, self.device)
         self.batch_size = mod_kwargs["batch_size"]
@@ -221,6 +226,11 @@ class Whittington2020(AgentCore):
         # silently average together two different environments' layouts
         # for the same state id.
         self.last_rotation_step = [0] * self.batch_size
+        # TEM-LC: per-step logs, parallel to obs_history/held_landmark_history.
+        # Always populated (NaN-filled rows when gating is off) so indices
+        # stay aligned with obs_history regardless of condition - see update().
+        self.lc_eps_history = []
+        self.lc_gate_history = []
 
     def _compute_reward_state_ids(self):
         """Find the state index nearest to reward_location for each environment."""
@@ -482,6 +492,16 @@ class Whittington2020(AgentCore):
         plot_loss = 0
         # Collect all losses / variables
         for ind, step in enumerate(forward):
+            # TEM-LC: log eps_t/gate for this step (NaN row when gating is
+            # off, so these stay index-aligned with obs_history either way).
+            self.lc_eps_history.append(
+                step.lc_eps.detach().cpu().numpy() if step.lc_eps is not None
+                else np.full(self.batch_size, np.nan, dtype=np.float32)
+            )
+            self.lc_gate_history.append(
+                step.lc_gate.detach().cpu().numpy() if step.lc_gate is not None
+                else np.full(self.batch_size, np.nan, dtype=np.float32)
+            )
             # Make list of losses included in this step
             step_loss = []
             # Only include loss for locations that have been visited before

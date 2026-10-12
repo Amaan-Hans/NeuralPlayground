@@ -97,14 +97,15 @@ class Model(torch.nn.Module):
                     self.init_iteration(g, x, [None for _ in range(len(a))], prev_M)
                 ]
             # Perform TEM iteration using transition from previous iteration
-            L, M, g_gen, p_gen, x_gen, x_logits, x_inf, g_inf, p_inf = self.iteration(
+            L, M, g_gen, p_gen, x_gen, x_logits, x_inf, g_inf, p_inf, lc_eps, lc_gate, lc_eps0 = self.iteration(
                 x, g, steps[-1].a, steps[-1].M, steps[-1].x_inf, steps[-1].g_inf,
-                td_scale=td_scale, v=v,
+                td_scale=td_scale, v=v, eps0_prev=steps[-1].lc_eps0,
             )
             # Store this iteration in iteration object in steps list
             steps.append(
                 Iteration(
-                    g, x, a, L, M, g_gen, p_gen, x_gen, x_logits, x_inf, g_inf, p_inf
+                    g, x, a, L, M, g_gen, p_gen, x_gen, x_logits, x_inf, g_inf, p_inf,
+                    lc_eps=lc_eps, lc_gate=lc_gate, lc_eps0=lc_eps0,
                 )
             )
             # The first step is either a step from a previous walk or initialisiation
@@ -114,7 +115,9 @@ class Model(torch.nn.Module):
         # Return steps, which is a list of Iteration objects
         return steps
 
-    def iteration(self, x, locations, a_prev, M_prev, x_prev, g_prev, td_scale=None, v=None):
+    def iteration(
+        self, x, locations, a_prev, M_prev, x_prev, g_prev, td_scale=None, v=None, eps0_prev=None
+    ):
         """Perform a single iteration of the TEM model. This consists of a
         transition step, followed by an inference step and a generative step.
 
@@ -126,6 +129,10 @@ class Model(torch.nn.Module):
             M_prev: previous memory connectivity matrix
             x_prev: previous sensory experience
             g_prev: previous abstract location
+            eps0_prev: TEM-LC only - previous iteration's running EMA baseline
+            for the prediction-error gate, shape (batch_size,), or None if LC
+            gating is off. NaN entries mark batch slots whose baseline hasn't
+            been bootstrapped yet (fresh walk/rotation - see init_walks).
 
         Returns
         -------
@@ -138,6 +145,9 @@ class Model(torch.nn.Module):
             x_inf: list of inferred observations for this iteration
             g_inf: list of inferred abstract (grid cell) locations for this iteration
             p_inf: list of inferred grounded (place cell) locations for this iteration
+            lc_eps: TEM-LC prediction error eps_t, shape (batch_size,), or None
+            lc_gate: TEM-LC gate g(eps_t), shape (batch_size,), or None
+            lc_eps0: updated running EMA baseline for the next iteration, or None
 
         """
         # First, do the transition step, as it will be necessary for both the inference
@@ -155,8 +165,29 @@ class Model(torch.nn.Module):
         # *inferred* variables instead of *generated* variables (as it would when used
         # for generation)
         x_gen, x_logits, p_gen = self.generative(M_prev, p_inf, g_inf, gt_gen)
+        # TEM-LC: prediction-error gate on the Hebbian write. eps_t reuses
+        # x_logits[0] (= f_x(W_tile^T . p_inf[0]), already computed by
+        # generative() above) against the same labels loss() uses for L_x_p -
+        # same formula, computed here (detached) so it can gate the memory
+        # write that happens before loss() runs this step.
+        if self.hyper.get("use_lc_gating", False):
+            labels = torch.argmax(x, 1)
+            eps_t = utils.cross_entropy(x_logits[0].detach(), labels)
+            uninitialized = torch.isnan(eps0_prev)
+            eps0_prev = torch.where(uninitialized, eps_t, eps0_prev)
+            lc_gate = torch.sigmoid(self.hyper["lc_beta"] * (eps_t - eps0_prev))
+            tau = self.hyper["lc_eps0_tau"]
+            lc_eps0 = (1 - tau) * eps0_prev + tau * eps_t
+            lc_eps = eps_t
+        else:
+            lc_eps, lc_gate, lc_eps0 = None, None, None
         # Update generative memory with generated and inferred grounded location.
-        M = [self.hebbian(M_prev[0], torch.cat(p_inf, dim=1), torch.cat(p_gen, dim=1), td_scale=td_scale)]
+        M = [
+            self.hebbian(
+                M_prev[0], torch.cat(p_inf, dim=1), torch.cat(p_gen, dim=1),
+                td_scale=td_scale, lc_scale=lc_gate,
+            )
+        ]
         # If using memory for grounded location inference: append inference memory
         if self.hyper[
             "use_p_inf"
@@ -171,12 +202,13 @@ class Model(torch.nn.Module):
                     torch.cat(p_inf_x, dim=1),
                     do_hierarchical_connections=False,
                     td_scale=td_scale,
+                    lc_scale=lc_gate,
                 )
             )
         # Calculate loss of this step
         L = self.loss(gt_gen, p_gen, x_logits, x, g_inf, p_inf, p_inf_x)
         # Return all iteration values
-        return L, M, gt_gen, p_gen, x_gen, x_logits, x_inf, g_inf, p_inf
+        return L, M, gt_gen, p_gen, x_gen, x_logits, x_inf, g_inf, p_inf, lc_eps, lc_gate, lc_eps0
 
     def inference(self, x, locations, M_prev, x_prev, g_gen, v=None):
         """Perform inference step of the TEM model.
@@ -646,8 +678,17 @@ class Model(torch.nn.Module):
             torch.zeros((self.hyper["batch_size"], self.hyper["n_x_f"][f]), device=self.device)
             for f in range(self.hyper["n_f"])
         ]
+        # TEM-LC: per-slot running EMA baseline for the prediction-error gate,
+        # NaN = "not bootstrapped yet" (first real eps_t in this walk fills
+        # it in - see Model.iteration). None entirely when gating is off.
+        # .get() (not hyper[...]) deliberately, so params.dict's saved before
+        # this feature existed still load without a KeyError.
+        lc_eps0 = (
+            torch.full((self.hyper["batch_size"],), float("nan"), device=self.device)
+            if self.hyper.get("use_lc_gating", False) else None
+        )
         # And construct new iteration for that g, x, a, and M
-        return Iteration(g=g, x=x, a=a, M=M, x_inf=x_inf, g_inf=g_inf)
+        return Iteration(g=g, x=x, a=a, M=M, x_inf=x_inf, g_inf=g_inf, lc_eps0=lc_eps0)
 
     def init_walks(self, prev_iter):
         """Initialise a new walk of the TEM model.
@@ -686,6 +727,11 @@ class Model(torch.nn.Module):
                     # Reset the sensory experience for this walk
                     for f, x_inf in enumerate(prev_iter[0].x_inf):
                         x_inf[a_i, :] = torch.zeros(self.hyper["n_x_f"][f], device=self.device)
+                    # TEM-LC: reset this slot's gate baseline too - "recent
+                    # eps_t" should mean recent within this environment
+                    # instance, not blended across a rotation.
+                    if self.hyper.get("use_lc_gating", False) and prev_iter[0].lc_eps0 is not None:
+                        prev_iter[0].lc_eps0[a_i] = float("nan")
         # Return the iteration with reset parameters (or simply the empty array if
         # prev_iter was empty)
         return prev_iter
@@ -1529,7 +1575,8 @@ class Model(torch.nn.Module):
         return p
 
     def hebbian(
-        self, M_prev, p_inferred, p_generated, do_hierarchical_connections=True, td_scale=None
+        self, M_prev, p_inferred, p_generated, do_hierarchical_connections=True,
+        td_scale=None, lc_scale=None,
     ):
         """Update attractor network memory by Hebbian learning of pattern. For
         example, initial attractor input can come from abstract location (g_)
@@ -1541,6 +1588,13 @@ class Model(torch.nn.Module):
             p_inferred: inferred grounded (place cell) locations
             p_generated: generated grounded (place cell) locations
             do_hierarchical_connections: whether to use hierarchical connections
+            td_scale: optional (batch_size,) multiplier on eta, reserved for
+            reward/TD-error-based Hebbian gating. Currently never set by any
+            caller (TEM-R uses a different mechanism - see Model.inference's
+            value-channel injection) - kept as its own independent hook.
+            lc_scale: optional (batch_size,) multiplier on eta, TEM-LC's
+            prediction-error gate g(eps_t). Independent of td_scale - both can
+            be provided at once (TEM-R-LC) and multiply together.
 
         Returns
         -------
@@ -1562,11 +1616,14 @@ class Model(torch.nn.Module):
         # frequencies for hierarchical retrieval
         if do_hierarchical_connections:
             M_new = M_new * self.hyper["p_update_mask"]
-        # Scale eta by ReLU(td_error) when provided (LC-inspired reward modulation).
-        # td_scale has shape (batch_size,); reshape to (batch_size,1,1) for broadcasting.
+        # Scale eta by td_scale/lc_scale when provided. Both have shape
+        # (batch_size,); reshape to (batch_size,1,1) for broadcasting. The
+        # two multipliers are independent and compose (TEM-R-LC = both).
         eta = torch.tensor(self.hyper["eta"], device=M_new.device)
         if td_scale is not None:
             eta = eta * td_scale.view(-1, 1, 1)
+        if lc_scale is not None:
+            eta = eta * lc_scale.view(-1, 1, 1)
         # Store grounded location in attractor network memory with weights M by Hebbian
         # learning of pattern
         M = torch.clamp(
@@ -1799,6 +1856,9 @@ class Iteration:
         x_inf=None,
         g_inf=None,
         p_inf=None,
+        lc_eps=None,
+        lc_gate=None,
+        lc_eps0=None,
     ):
         """Initialise iteration with all data from one iteration of the
         model.
@@ -1816,6 +1876,11 @@ class Iteration:
         self.x_inf = x_inf
         self.g_inf = g_inf
         self.p_inf = p_inf
+        # TEM-LC: prediction-error eps_t, gate g(eps_t), and the running EMA
+        # baseline used to compute that gate - each (batch_size,) or None.
+        self.lc_eps = lc_eps
+        self.lc_gate = lc_gate
+        self.lc_eps0 = lc_eps0
 
     def correct(self):
         """Calculate accuracy of model prediction for this iteration.
@@ -1852,5 +1917,10 @@ class Iteration:
         self.x_inf = [tensor.detach() for tensor in self.x_inf]
         self.g_inf = [tensor.detach() for tensor in self.g_inf]
         self.p_inf = [tensor.detach() for tensor in self.p_inf]
+        # TEM-LC fields are already detached when set (see Model.iteration),
+        # guard None here for when gating is off.
+        self.lc_eps = self.lc_eps.detach() if self.lc_eps is not None else None
+        self.lc_gate = self.lc_gate.detach() if self.lc_gate is not None else None
+        self.lc_eps0 = self.lc_eps0.detach() if self.lc_eps0 is not None else None
         # Return self after detaching everything
         return self

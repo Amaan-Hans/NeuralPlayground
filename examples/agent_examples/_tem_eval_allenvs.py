@@ -201,6 +201,8 @@ def _col_names(n_p_list):
 
 def _build_allenvs_df(agent, env, episode):
     condition = "reward_modulated" if agent.use_reward else "baseline"
+    if getattr(agent, "use_lc_gating", False):
+        condition += "_lc"
 
     rates_to_save, env_meta = _compute_multienv_rates_chunked(agent, env)
     if rates_to_save is None:

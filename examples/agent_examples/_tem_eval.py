@@ -53,6 +53,33 @@ EVAL_STEPS = 500
 MIN_DISPLAY_AMPLITUDE = 0.02   # matches tem_predictive_analysis.py's MIN_AMPLITUDE convention
 
 
+def _flush_lc_log(agent, held_indices, history_slice, ep_dir):
+    """TEM-LC: dump eps_t/gate (env 0 only) for this eval window.
+
+    Reuses run_eval()'s own held_indices/history_slice window - no new
+    windowing scheme, no extra compute, and these are the live training-time
+    values (agent.lc_eps_history/lc_gate_history), not a replay - a replay
+    through agent.tem() would bootstrap its own independent eps0 chain and
+    would not match what was actually applied during training.
+    """
+    if not getattr(agent, "use_lc_gating", False):
+        return
+    # lc_eps_history/lc_gate_history are only appended inside update(), once
+    # per full n_rollout-step chunk - obs_history (and therefore held_indices,
+    # built from it) can run up to n_rollout-1 entries ahead of them early in
+    # training, before the first chunk has been forward-passed. Clip to what's
+    # actually been logged so far; skip entirely if nothing overlaps yet.
+    n_logged = len(agent.lc_eps_history)
+    pairs = [(idx, step) for idx, step in zip(held_indices, history_slice) if idx < n_logged]
+    if not pairs:
+        return
+    kept_indices, kept_history = zip(*pairs)
+    eps = np.array([agent.lc_eps_history[idx][0] for idx in kept_indices], dtype=np.float32)
+    gate = np.array([agent.lc_gate_history[idx][0] for idx in kept_indices], dtype=np.float32)
+    state_id = np.array([step[0][0] for step in kept_history])
+    np.savez(os.path.join(ep_dir, "lc_gating_log.npz"), eps=eps, gate=gate, state_id=state_id)
+
+
 def run_eval(agent, env, episode: int, eval_save_path: str):
     """Entry point called from the training loop every eval_interval episodes.
 
@@ -94,6 +121,8 @@ def run_eval(agent, env, episode: int, eval_save_path: str):
     history_slice = real_history[-n_steps:]
     held_indices = real_indices[-n_steps:]
     walk_slice = real_actions[-n_steps:]
+
+    _flush_lc_log(agent, held_indices, history_slice, ep_dir)
 
     n_obs = len(history_slice[0][0][1])
     n_states = agent.n_states[0]
