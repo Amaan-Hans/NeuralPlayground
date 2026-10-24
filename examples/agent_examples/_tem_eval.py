@@ -519,7 +519,8 @@ def _save_probe_snapshot(save_dir, condition, sum_accum, count_accum, n_envs, n_
 def run_multienv_probe(agent, env, obs, n_episodes: int, chunk_episodes: int = 10,
                         warmup_steps: int = 500, progress_every: int = 20,
                         progress_prefix: str = "", save_dir: str = None,
-                        save_every_episodes: int = None, condition: str = "probe"):
+                        save_every_episodes: int = None, condition: str = "probe",
+                        control_shuffle_interval: int = None):
     """Drive a frozen-weight random-policy walk AND accumulate per-env,
     per-frequency place-cell rate maps in one interleaved pass.
 
@@ -546,6 +547,16 @@ def run_multienv_probe(agent, env, obs, n_episodes: int, chunk_episodes: int = 1
 
     Caller must have already called env.reset() and seeded RNGs; pass the
     resulting `obs` in.
+
+    control_shuffle_interval, if set, re-randomizes every env slot's
+    control-landmark positions (DiscreteObjectEnvironment.
+    reshuffle_control_landmarks() - value landmarks, decoys, reward marker,
+    and all agent-side state untouched) every `control_shuffle_interval`
+    episodes, mirroring training_loops.py's tem_training_loop's own
+    identically-named parameter exactly (checked once per chunk, for any
+    multiple of the interval crossed during that chunk, so chunk_episodes
+    need not divide it evenly). None (default) disables this, matching every
+    existing caller's behaviour unchanged.
     """
     n_rollout = agent.pars["n_rollout"]
     n_envs = agent.batch_size
@@ -578,6 +589,7 @@ def run_multienv_probe(agent, env, obs, n_episodes: int, chunk_episodes: int = 1
 
     with torch.no_grad():
         while episode < n_episodes:
+            episode_before = episode
             chunk_target = min(episode + chunk_episodes, n_episodes)
             while episode < chunk_target:
                 actions = agent.batch_act(obs)
@@ -586,6 +598,12 @@ def run_multienv_probe(agent, env, obs, n_episodes: int, chunk_episodes: int = 1
                     agent.n_walk = 0
                     episode += 1
             chunk_idx += 1
+
+            if control_shuffle_interval and (
+                episode // control_shuffle_interval > episode_before // control_shuffle_interval
+            ):
+                for j in range(n_envs):
+                    env.environments[j].reshuffle_control_landmarks()
 
             real_indices = [i for i, step in enumerate(agent.obs_history) if step[0][0] != -1]
             if not real_indices:

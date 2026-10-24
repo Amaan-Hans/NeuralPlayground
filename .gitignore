@@ -89,3 +89,4 @@ examples/agent_examples/loop_seed42_run.log
 */reward_modulated/agent
 */reward_modulated/agent_hyper
 */reward_modulated/arena
+*.csv

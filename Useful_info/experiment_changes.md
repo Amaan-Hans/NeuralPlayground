@@ -826,3 +826,432 @@ and the clean shape/value dissociation. Which of the two changes
 responsible has not been isolated — would need a controlled ablation (e.g.
 interval=25 without the reward object, or interval=100 with it) to pin down
 before drawing further conclusions from this campaign's results.
+
+---
+
+## Update 2026-10-14: LC-inspired prediction-error gating (TEM-LC, TEM-R-LC)
+## — mechanism, a reward-visitation sanity check, and a campaign that
+## cleanly beats both prior campaigns on both metrics
+
+### Mechanism: gate the Hebbian write by one-step sensory prediction error
+
+New, independent, switchable module (`use_lc_gating`) alongside the existing
+reward/value mechanism (which this does **not** touch) — inspired by locus
+coeruleus norepinephrine signalling: scale the Hebbian memory write rate by
+how surprising the current step is, instead of writing at a uniform rate.
+
+- `ε_t = cross_entropy(x_logits[0], labels)` — reuses `Model.generative()`'s
+  already-computed `x_p_logits` (`whittington_2020_model.py`'s
+  `generative()`, called *before* `hebbian()` in `iteration()`), so this is
+  exactly the same quantity as the existing `L_x_p` loss term, computed
+  fresh and **detached** (a control signal, not something trained via
+  backprop) — zero new learned parameters, no extra forward pass.
+- `g(ε_t) = sigmoid(lc_beta * (ε_t − ε₀))`, `ε₀` a per-batch-slot running
+  EMA of `ε_t` (`lc_eps0_tau`), threaded through `Iteration`/`prev_iter`
+  (not a plain `Model` attribute) so periodic eval/probe replays — which
+  call `agent.tem()` directly against the same `Model` instance — get their
+  own independent `eps0` chain instead of corrupting the live training one.
+  Resets per batch slot via the *existing* `init_walks()` hook (the same
+  one `rotate_environments` already uses to mark a fresh environment
+  instance), so "recent ε_t" means recent within this environment, not
+  blended across a rotation.
+- `Model.hebbian()` gained an independent `lc_scale` kwarg (alongside the
+  pre-existing, still-unused `td_scale` kwarg — different mechanism,
+  untouched), multiplied into `eta` the same way: `M(t) = λM(t−1) +
+  η(t)·g(ε_t)·(p−p̂)(p+p̂)ᵀ`. Baseline's existing `η(t)` annealing schedule is
+  preserved unchanged. `use_lc_gating=False` is a no-op by construction —
+  verified, not assumed (see below).
+- Config: `use_lc_gating`/`lc_beta`/`lc_eps0_tau` default `False`/`5.0`/
+  `0.01` in `parameters.py`; CLI `--lc-gating`/`--lc-beta`/`--lc-eps0-tau`
+  in `submit_experiments.py`; env vars `TEM_LC_GATING`/`TEM_LC_BETA`/
+  `TEM_LC_EPS0_TAU`. Condition folders get a `_lc` suffix
+  (`baseline_lc`/`reward_modulated_lc`), additive — existing `baseline`/
+  `reward_modulated` names are unaffected when the flag is off.
+- Per-step `ε_t`/gate logging: `lc_gating_log.npz` written at every existing
+  eval checkpoint (`_tem_eval.py`'s `_flush_lc_log()`), reusing the same
+  trailing-window slicing already used for place-cell rates.
+
+### A real, pre-existing reproducibility gap found and fixed along the way
+
+Verifying "gate off reproduces baseline exactly, same seed" surfaced that
+this repo had **zero `torch.manual_seed` calls anywhere**, and — less
+obviously — that `np.random.seed()` wasn't enough either:
+`Model.init_trainable()` initialises `g_init`/`logsig_g_init` (trainable
+grid-cell priors) via `scipy.stats.truncnorm.rvs()`, which draws from
+**numpy's** global RNG, at agent-construction time — i.e. *before*
+`tem_training_loop`'s own `random.seed`/`np.random.seed` calls ever run
+(those only cover object-layout generation and the action sequence, both
+inside `env.reset()`, which happens after construction). Fixed by seeding
+all three RNG streams together at the earliest point in
+`whittington_2020_run.py`, before agent/env construction. This is a general
+fix, not LC-specific — it makes every future run's weight initialisation
+actually reproducible under the same `TEM_SEED`, which was silently false
+before.
+
+### Verification (`verify_lc_gate_off.py`, `inspect_lc_gate_tuning.py`)
+
+Both run the real training pipeline (via `submit_experiments.run_training_job`
+as a subprocess, not a reimplementation), forced onto CPU to isolate the
+check from CUDA's own non-determinism (a separate, pre-existing property of
+the whole stack, not fixed here):
+- Gate off, same seed, two separate runs → every tensor in
+  `agent.tem.state_dict()` is `torch.equal` — **PASS**.
+- Gate on, same seed → produces different weights (not silently inert) —
+  **PASS**.
+- 300-episode gate-only tuning run with the defaults (`lc_beta=5.0`,
+  `lc_eps0_tau=0.01`): gate starts near-uninformative (episode 1, single-
+  sample window, mean=0.5), and by episode 300 shows real position
+  selectivity — mean gate 0.195, 70% of positions suppressed (<0.1,
+  familiar/predictable), 14% strongly gated (>0.9, still surprising). Not
+  saturated, not flat — defaults used as-is for the full campaign, no
+  retuning needed.
+
+### Does the agent's random walk actually reach the reward state often enough to matter?
+
+Raised directly: the walk policy (`action_policy()`) is **uniform random
+over 4 actions**, with zero reward-seeking bias — value/reward never
+influences which direction the agent moves (this TEM implementation learns
+value passively via TD on top of undirected exploration; it does not do
+goal-directed action selection). So how often the agent's single `reward
+state (nearest `reward_location`, which is also the dedicated
+`reward_object_id`'s state) gets visited is purely a function of walk
+length and arena coverage, not of what's been learned — worth checking
+directly rather than assuming.
+
+New diagnostic (`examples/agent_examples/check_reward_visits.py`): builds
+env/agent from a saved `params.dict` but loads no trained weights and never
+calls `agent.update()` (skips the TEM forward pass entirely, since the
+random policy doesn't depend on it) — just runs `agent.batch_act()`/
+`env.step()` in a loop, tallying per-env-slot visits to the reward state.
+Results, 16 env slots, mixed arena sizes 64-121 states:
+
+| scale | total steps/env | visits/env (min / mean / max) | zero-visit slots |
+|---|---|---|---|
+| probe (1000 episodes) | 20,000 | 126 / 269.8 / 387 | 0/16 |
+| training (50,000 episodes) | 1,000,000 | 8,219 / 12,768.8 / 17,811 | 0/16 |
+
+~1.3% of all steps land exactly on the reward state at both scales (higher
+than the naive 1/n_states uniform-coverage baseline — plausible, since
+`reward_location` sits closer to one corner than arena center, and bounded
+random walks dwell disproportionately near boundaries). **Conclusion:
+reward-state coverage is not a concern at either probe or training scale**
+— the walk reaches it thousands of times over a full run.
+
+### Campaign: `ctrlshuffle25_rewardobj_lc_50k` — same config as `ctrlshuffle25_rewardobj_50k`, LC gating added, 5 seeds
+
+Deliberately did **not** resubmit `baseline`/`reward_modulated` (already
+fully trained for all 5 seeds under the prior campaign) — only the 2 new
+conditions (`baseline_lc`, `reward_modulated_lc`, 10 jobs) were submitted,
+reusing the existing checkpoints for the other half of the 2×2 comparison.
+Jobs 67402-67406, identical config otherwise (`control_shuffle_interval=25`,
+`reward_object_id=44`, `decoy_object_id=30`, size-cycle `[8,9,10,11]`, 50k
+episodes). All 10 runs finished clean (0 NaN/Inf params in every checkpoint).
+One job (seed 1) landed on a CPU node and took ~29h instead of the ~17h the
+4 GPU-node seeds took - left to finish naturally since by the time this was
+noticed it was already past the halfway point (continuing was faster than
+restarting fresh on a GPU node).
+
+**Accuracy (x_gt, mean of last 500 episodes, all 5 seeds):**
+
+| | baseline | reward_modulated | RM − baseline |
+|---|---|---|---|
+| `ctrlshuffle25_rewardobj_50k` (no LC) | 0.841 | 0.836 | **−0.5pp, inconsistent** (seed 1: −4.3pp) |
+| `ctrlshuffle25_rewardobj_lc_50k` (LC) | 0.819 | 0.843 | **+2.4pp, positive on all 5 seeds** (42:+4.9, 7:+0.3, 1:+5.8, 2:+0.3, 3:+0.7) |
+
+LC gating costs baseline ~2.2pp of raw accuracy (plausible: the gate
+suppresses most Hebbian writes - only ~14-30% of positions get a strong
+write per the tuning run - so less total memory signal accumulates when
+there's no value mechanism giving that suppression anything useful to key
+off). But `reward_modulated_lc`'s accuracy (84.3%) is essentially unchanged
+or slightly *better* than non-LC `reward_modulated` (83.6%), and critically
+the RM-vs-baseline gap becomes clean and consistent for the first time in
+this line of campaigns - seed 1, the single worst outlier under non-LC
+(RM **−4.3pp** worse than baseline there), becomes the single *best* seed
+under LC (RM **+5.8pp** better).
+
+**Value decodability (`has_value` classifier, pooled, held-out test) - LC beats both prior campaigns on every metric:**
+
+| | `ctrlshuffle_50k` (oldest) | `ctrlshuffle25_rewardobj_50k` (no LC) | `ctrlshuffle25_rewardobj_lc_50k` (LC) |
+|---|---|---|---|
+| accuracy | 0.920 | 0.847 | **0.939** |
+| balanced accuracy | 0.874 | 0.822 | **0.889** |
+| AUC | 0.965 | 0.920 | **0.978** |
+| `bl_real` pooled (false-positive rate, want ~0) | 0.113 | 0.394 | **0.044** |
+| `bl_real` per-seed range | - | 0.000-0.744 | **0.000-0.103** |
+
+Every per-seed `bl_real` rate is now low and consistent (seeds 42/7/1/2/3:
+0.103/0.077/0.000/0.000/0.057) - none of the wild seed-to-seed spread the
+non-LC campaign had.
+
+### What "value decodability" is actually showing - clarifying a subtlety
+
+The classifier distinguishes **`rm_real`** (the value-eligible landmarks in
+the `reward_modulated_lc` run - `is_landmark==1` AND `value` explicitly
+assigned, i.e. `V[landmark]` was injected into the compressed sensory code
+`x_c` via the *original*, LC-untouched TEM-R mechanism) from three negative
+groups: `rm_control` (same run, same kind of never-duplicated landmark
+object, but one that never got a value assigned - a same-run, same-
+condition contrast), and `bl_real`/`bl_control` (the `baseline_lc` run,
+where `use_reward=False` means **no object of any kind ever gets a value
+injected** - LC gating only changes the Hebbian learning-rate schedule, it
+has no mechanism to write value into anything).
+
+This means `bl_real`'s objects are, structurally, identical to `bl_control`'s
+- both are just spatially-fixed, never-duplicated landmark-type objects in
+a run where nothing carries value. The low `bl_real` rate (0.044 pooled) is
+not a weak or surprising result - it is the **correct** answer, and it's the
+most important number in the table: it confirms the classifier isn't just
+keying off "this is a never-duplicated, reward-proximity-biased landmark"
+shape/placement cue (which `bl_real` objects also have, despite carrying no
+value) - if it were, `bl_real` would score as high as `rm_real` and the
+whole measurement would be confounded. The fact that `rm_control` (same
+run as `rm_real`, same object type, zero value) also scores ~0% reinforces
+this from the other direction.
+
+So: the agent did **not** spontaneously learn to treat objects as valuable
+without ever being given a value signal - `reward_modulated_lc`'s `rm_real`
+objects were explicitly given one (same mechanism as plain TEM-R, completely
+untouched by this feature). What LC gating changed is how *cleanly and
+consistently* that already-injected signal shows up in place-cell activity
+across seeds, not whether a signal exists in the first place. The honest
+reading is: gating the Hebbian write by prediction error appears to make the
+memory system a more faithful, less noisy encoder of whatever value signal
+it's actually given - not a mechanism that infers value where none was
+---
+
+## Update 2026-10-18: the no-shuffle campaign completed, then a long,
+## mostly-humbling methodology investigation into what "value decodability"
+## actually proves - several confounds found, one found to invalidate an
+## earlier "decisive" result, and a narrower but more defensible finding
+## survives
+
+### No-shuffle campaign (`ctrlshuffle25_rewardobj_noshuffle_50k`) completed in full
+
+All 5 seeds x both conditions now exist (the `reward_modulated` half was
+trained after the original ablation only covered `baseline`) - all 10
+checkpoints NaN/Inf-clean. This is the first **apples-to-apples** test of
+the no-shuffle ablation, since the earlier landmark-vs-control proxy test
+never had a real value-carrying condition to compare against.
+
+**Accuracy (x_gt):** baseline mean 0.832, `reward_modulated` mean 0.820 -
+driven almost entirely by a severe seed-1 outlier (**-14.3pp**, far worse
+than any outlier seen in the shuffle-enabled campaigns); the other 4 seeds
+average **+2.0pp**, the normal direction.
+
+**Value-decode (`has_value` classifier):** accuracy=0.836, balanced
+accuracy=0.876, AUC=0.960 - still highly significant, but the group
+breakdown is qualitatively different from every shuffle-enabled campaign:
+`rm_control`=0.168 and `bl_control`=0.194 are **not near-zero**, for the
+first time ever (they were always ~0.000 in both the no-LC and LC
+campaigns). Disabling reshuffling doesn't clean up `bl_real`'s false-positive
+problem - it makes the classifier noisier across *all three* negative-class
+groups, and critically `bl_real` (0.244) and `bl_control` (0.194) are now
+close to each other instead of `bl_control` sitting at a clean 0% floor -
+once reshuffling is off, the classifier can no longer reliably tell
+real-landmark-type from control-landmark-type among baseline objects at
+all. This argues *against* "permanence causes the original confound" -
+removing reshuffling made things noisier, not cleaner, suggesting
+reshuffling was doing something generically useful for representational
+stability, not creating a confound that removing it would fix.
+
+### A new tool: object-id-tagged frozen-weight probing
+
+`tem_probe_eval_allenvs_objectid.py` (new script) - same frozen-weight,
+all-environments probe as the existing `tem_probe_eval_allenvs.py`, but
+also keeps the raw object id per state (0-9 = value landmark, 10-19 =
+control landmark, by this project's fixed convention) instead of
+collapsing straight to `is_landmark`/`is_control_landmark` flags. Needed
+for every id-level analysis below. **Requires `agent_hyper` to be synced
+locally alongside `agent`/`params.dict`/`whittington_2020_model.py`** -
+this file was only synced for the no-shuffle campaign originally;
+forgetting it for the no-LC campaign caused all 5 seeds to fail instantly
+with `FileNotFoundError` before any real work happened (cheap mistake,
+easy to miss since `accuracy_probe.py`/`value_decode_probe.py` don't need
+this file at all - only the standalone all-envs probes do).
+
+**Operational lesson learned the hard way: this GPU cannot run 2
+concurrent `accuracy_probe.py`/probe-script processes.** Running 2 at once
+dropped GPU compute utilization to 31% while VRAM sat at 96% (11.8/12.2
+GiB) - a memory-pressure stall, not normal 50/50 time-sharing. Killing one
+process immediately raised the survivor's utilization to 51% and dropped
+VRAM to 58%. **All probe/accuracy-script runs in this pipeline must now be
+one process at a time**, confirmed repeatedly after this finding.
+
+### Finding 1 (solid): raw object identity alone is PERFECTLY decodable - any arbitrary partition
+
+`check_fake_identity_value.py` - fabricated a completely arbitrary split
+of the 20 landmark+control ids (first 5 + last 5 = "fake-valuable", middle
+10 = "not", deliberately straddling the real landmark/control boundary so
+it can't be explained by that category either) on the no-shuffle
+baseline's (zero value anywhere) place-cell activity. Result: **accuracy =
+balanced accuracy = AUC = 1.000**, zero errors on 256 held-out states.
+This is unconfounded by any cross-network comparison (single network,
+single dataset, arbitrary label) and stands as solid: place-cell activity
+encodes raw per-object identity so completely that *any* id partition is
+trivially separable. Every "value decodability" number measured anywhere
+in this project is upper-bounded by this - high separability between
+`rm_real` and anything else was never strong evidence of value-detection
+on its own.
+
+### Finding 2 (retracted/narrowed): cross-network comparisons are confounded by generic network divergence, not value
+
+Two follow-up tests initially looked like clean positive evidence of a
+real value signal, and were presented that way - both turned out to be
+compromised by the same root issue, caught by a sharp external critique
+(credited - this section exists because of it):
+
+- `check_identity_residualized_value.py`: per-object-id mean-centering the
+  `has_value` classifier's features before refitting. Balanced accuracy
+  barely dropped (0.952 -> 0.929) and `bl_real`'s false-positive rate
+  *fell* (0.143 -> 0.057) - looked like value surviving identity-removal.
+- `check_matched_pair_value.py`: `reward_modulated - baseline` activity
+  differences at matched (seed, env_id, state_id) triples (layouts are
+  byte-identical across conditions for a given seed - verified directly,
+  zero `is_landmark`/`is_control_landmark` mismatches). Scored 0.80-0.86
+  balanced accuracy across all 3 campaigns telling real-landmark diffs
+  from control-landmark diffs - presented as "decisive" at the time.
+
+**Both are flawed for the same reason**: `baseline` and `reward_modulated`
+(or the pooled-and-residualized equivalent) are two **separately trained
+networks**. After 50k episodes of different gradient signals, their
+weights diverge for reasons having nothing to do with value - and since
+real landmarks are *always* ids 0-9 and controls *always* 10-19 (the exact
+invariant Finding 1 already proved is trivially decodable), any
+id-correlated divergence between two differently-trained networks can
+masquerade as a value signal. Neither test controlled for this.
+
+**Directly confirmed by `check_matched_pair_null.py`**: ran the identical
+matched-pair test on a pairing where *neither side ever carries value* -
+no-LC campaign's `baseline` vs LC campaign's `baseline_lc`, same seed
+(layout match verified first, zero mismatches, all 5 seeds). Result:
+**balanced accuracy 0.879, AUC 0.971 - higher than every one of the
+"value" comparisons (0.807-0.862).** A zero-value-both-sides pairing
+separates real from control landmarks at least as well as the pairing
+that supposedly had value. This directly invalidates the matched-pair
+test's "decisive" framing - its signal was never specific to value.
+
+**Follow-up (`check_landmark_vs_control_condition_predict.py`)**: tried a
+difference-in-differences design instead - predict *which condition*
+(baseline or reward_modulated) produced a row, once using only landmark
+rows, once using only control rows, same two networks both times, so any
+value-specific effect should show landmarks scoring higher than controls.
+Result across all 3 campaigns: **controls score slightly *higher* than
+landmarks every time** (gaps of -0.006 to -0.025) - the opposite of the
+predicted direction. No evidence of landmark-specific extra divergence
+beyond generic network noise.
+
+**Lesson for any future test in this line of work**: a test is only valid
+evidence of a value-specific signal if it (a) never compares two
+separately-trained networks against each other, and (b) never varies by
+the landmark/control id-range alone (since that range is perfectly, and
+separately, decodable per Finding 1). Any design that does either is
+measuring an unknown mixture of value and these two confounds, not value
+cleanly.
+
+### Finding 3 (survives, but narrower than first claimed): relative learned value is decodable within a single network, controlling for identity
+
+`check_within_network_value_rank.py` - designed to avoid both confounds
+above: uses *only* `rm_real` rows from the reward_modulated network (no
+cross-network comparison), *only* the landmark id-range (no id-range
+contrast), labels each landmark as above/below its own environment's
+median learned `V(id)` (relative rank, controls for absolute V-scale
+differences across environments/seeds), held out by *entire environment*
+(an environment's 10 landmarks never split across train/test). Result:
+**balanced accuracy 0.806-0.850 across all 3 campaigns**, all highly
+significant.
+
+**Five further control checks** (`check_value_rank_controls.py`, run on
+the no-shuffle campaign, seeds 7/2/3 - the only ones with object-id data
+for both conditions at the time) narrowed this considerably:
+
+| check | balanced accuracy | significant? |
+|---|---|---|
+| object_id alone -> label (no place cells) | 0.600 | no (p=0.12) |
+| distance-to-reward alone -> label | **0.860** | **yes** |
+| distance+id -> label | 0.880 | yes |
+| baseline's own features -> RM's label | 0.580 | no (p=0.093) |
+| RM features -> id-residualized label | 0.890 | yes |
+| baseline features -> id-residualized label | 0.630 | yes (p=0.0066) |
+| leave-one-seed-out (RM features, original label) | 0.783 (mean of 3 folds) | - |
+
+Raw id alone does *not* explain the result (rules out a fixed
+per-id placement-order artifact). But **plain distance-to-reward alone -
+one number, no network - predicts the label better than the place-cell
+classifier does.** That substantially narrows the claim: place cells
+partially succeeding is not surprising since they are position encoders
+by definition, and distance mechanically determines TD value. The
+informative part is Check 3: **baseline's own place cells (same
+architecture, same positions, zero value ever) cannot predict RM's label
+above chance**, even though they have the same position-encoding
+machinery raw distance has. If this were pure shared position-leakage,
+baseline should succeed too; it doesn't. Check 4 (residualizing away each
+id's fixed tendency) still works for RM (0.890) but baseline is not
+perfectly at chance either (0.630, p=0.0066) - a real gap exists (0.890 vs
+0.630) but not a fully clean RM-significant/baseline-chance dichotomy.
+Check 5 confirms the effect generalizes to entirely unseen,
+independently-trained seeds (0.783 mean), weaker than the within-seed
+number but clearly real.
+
+**The defensible claim, narrowed from the original**: not "place cells
+represent value" - rather, **"training with value makes relative
+distance-to-reward more linearly decodable from place-cell activity than
+training without value does, and this survives controlling for each id's
+fixed tendency and generalizes across independently-trained seeds."**
+Smaller than first claimed, but it actually survives this scrutiny, unlike
+the matched-pair result above.
+
+**Not yet run**: the same 5-check battery on the no-LC and LC campaigns
+(needs object-id probing for them first - `agent_hyper` now synced,
+command ready, paused mid-run twice at the user's request, cheap to
+resume: `tem_probe_eval_allenvs_objectid.py` once per seed, sequential).
+
+### Reframing the thesis question itself
+
+A late but important reframing: decoding injected value from `rm_real` is
+close to circular, since value is written directly into the compressed
+sensory code `x_c` by construction - of course it's "decodable," that's
+not an interesting finding on its own. **The actually interesting
+question is whether a *zero-value* run's permanently-fixed objects
+(landmarks) get mistaken for valuable** - i.e. exactly what `bl_real`
+already measures - and whether that holds up whether measured from the
+live training snapshot or an independent frozen-weight probe, comparing
+shuffling-enabled (no-LC) against no-shuffling as the controlled
+comparison. For the no-shuffle campaign we already have both measurements
+(training snapshot: `bl_real`=0.244/`bl_control`=0.194; standalone probe:
+`bl_real`=0.143/`bl_control`=0.000 - noticeably cleaner, likely because
+the standalone probe averages over a much longer, cleaner walk than the
+live-training trailing window does). The equivalent standalone-probe
+measurement for the no-LC (shuffling-enabled) campaign has not been run
+yet (`check_training_vs_probe_blreal.py` is written and ready; the probe
+run itself was paused mid-sequence at the user's request, to resume
+later).
+
+### New diagnostic scripts this update (all in `examples/agent_examples/`)
+
+- `tem_probe_eval_allenvs_objectid.py` - frozen-weight all-envs probe
+  keeping raw `object_id` per state (needs `agent_hyper` synced).
+- `check_fake_identity_value.py` - arbitrary id-partition decodability
+  (Finding 1).
+- `check_identity_residualized_value.py` - per-id mean-centered
+  `has_value` classifier (Finding 2, superseded/narrowed).
+- `check_classifier_transfer.py` / `check_identity_only_transfer.py` -
+  cross-campaign classifier transfer tests (earlier in this investigation,
+  before the cross-network confound was identified - read with that
+  caveat in mind).
+- `check_matched_pair_value.py` / `check_matched_pair_null.py` - the
+  matched-pair test and the null pairing that invalidated its "decisive"
+  framing (Finding 2).
+- `check_landmark_vs_control_condition_predict.py` - difference-in-
+  differences landmark-vs-control condition-prediction test (Finding 2).
+- `check_within_network_value_rank.py` - the within-network relative-value
+  rank test (Finding 3).
+- `check_value_rank_controls.py` - the five control checks on Finding 3,
+  parameterized by `--probe-dir`/`--seeds`/`--label` to run on any
+  campaign's object-id probe data.
+- `check_training_vs_probe_blreal.py` - training-snapshot vs
+  standalone-probe `bl_real`/`bl_control` comparison (written, not yet
+  run on no-LC).
+- `check_noshuffle_decodability.py` - the original landmark-vs-control
+  proxy test, superseded by the full apples-to-apples no-shuffle campaign
+  result above once `reward_modulated` finished training.
+provided.
