@@ -73,6 +73,14 @@ CAMPAIGNS = {
         r"C:\Users\hansl\Desktop\Projects\Masters_research\Thesis\reward_modulated_experiments_ctrlshuffle25_rewardobj_noshuffle",
         "reward_modulated", None,
     ),
+    "baseline_lc_noshuffle": (
+        r"C:\Users\hansl\Desktop\Projects\Masters_research\Thesis\reward_modulated_experiments_ctrlshuffle25_rewardobj_noshuffle_lc",
+        "baseline_lc", None,
+    ),
+    "rm_lc_noshuffle": (
+        r"C:\Users\hansl\Desktop\Projects\Masters_research\Thesis\reward_modulated_experiments_ctrlshuffle25_rewardobj_noshuffle_lc",
+        "reward_modulated_lc", None,
+    ),
 }
 
 OUT_DIR = os.path.join(AGENT_EXAMPLES_DIR, "accuracy_curve_results")

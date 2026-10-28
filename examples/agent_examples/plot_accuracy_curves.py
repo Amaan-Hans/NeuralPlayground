@@ -20,7 +20,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 PROBE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "accuracy_curve_results")
-OUT_DIR = r"C:\Users\hansl\Downloads\tem_accuracy_curves_seed42"
+OUT_DIR = r"C:\Users\hansl\Desktop\Projects\Masters_research\Thesis\quantitative\random-walk"
 
 BLUE = "#2a78d6"
 ORANGE = "#eb6834"
@@ -36,6 +36,8 @@ BASELINE_AXIS = "#c3c2b7"
 
 SEEDS = [42, 7, 1, 2, 3]
 ROTATION_INTERVAL = 25
+N_EPISODES = 500
+LAST_N_EPISODES = 100  # restrict to the final 100 of 500 episodes (steady-state, past early-walk settling)
 
 
 def style_axes(ax, title):
@@ -50,7 +52,7 @@ def style_axes(ax, title):
     ax.set_axisbelow(True)
 
 
-def load_all_seeds(label):
+def load_all_seeds(label, last_n_episodes=LAST_N_EPISODES):
     frames = []
     for seed in SEEDS:
         path = os.path.join(PROBE_DIR, f"{label}_seed{seed}_accuracycurve.csv")
@@ -59,6 +61,8 @@ def load_all_seeds(label):
             continue
         df = pd.read_csv(path)
         df["seed"] = seed
+        if last_n_episodes is not None:
+            df = df[df["episode"] >= N_EPISODES - last_n_episodes]
         frames.append(df)
     return pd.concat(frames, ignore_index=True)
 
@@ -118,11 +122,13 @@ def plot_pair(baseline_label, rm_label, campaign_title, out_name, noshuffle_labe
     axes[0].set_ylabel("x_gt accuracy (object identity)", color=INK_SECONDARY, fontsize=9)
 
     fig.suptitle(campaign_title, color=INK_PRIMARY, fontsize=13, fontweight="bold")
+    n_cycles = LAST_N_EPISODES // ROTATION_INTERVAL
     fig.text(
         0.01, 0.01,
-        f"5 seeds, frozen weights - rotation-enabled conditions: all seeds x ~{500 // ROTATION_INTERVAL} cycles "
-        f"pooled onto one 0-{ROTATION_INTERVAL - 1} within-cycle axis (mean +/- SEM); "
-        f"rotation-off conditions (dashed): flat mean +/- SEM across all 5 seeds x 500 episodes, no cycle structure",
+        f"5 seeds, frozen weights, last {LAST_N_EPISODES} of {N_EPISODES} episodes only (steady-state, past "
+        f"early-walk settling) - rotation-enabled conditions: all seeds x {n_cycles} cycles pooled onto one "
+        f"0-{ROTATION_INTERVAL - 1} within-cycle axis (mean +/- SEM); rotation-off conditions (dashed): flat "
+        f"mean +/- SEM across all 5 seeds x last {LAST_N_EPISODES} episodes, no cycle structure",
         color=INK_MUTED, fontsize=7.5,
     )
     fig.tight_layout(rect=[0, 0.03, 1, 0.93])
@@ -137,14 +143,17 @@ def main():
     os.makedirs(OUT_DIR, exist_ok=True)
     plot_pair(
         "baseline", "rm",
-        "Accuracy by object category, pooled across 5 seeds: baseline vs reward_modulated (+ rotation-off reference)",
+        f"Accuracy by object category, last {LAST_N_EPISODES} episodes, 5 seeds: "
+        f"baseline vs reward_modulated (+ rotation-off reference)",
         "non_lc_accuracy_curve.png",
         noshuffle_labels=("baseline_noshuffle", "rm_noshuffle"),
     )
     plot_pair(
         "baseline_lc", "rm_lc",
-        "Accuracy by object category, pooled across 5 seeds: baseline_lc vs reward_modulated_lc",
+        f"Accuracy by object category, last {LAST_N_EPISODES} episodes, 5 seeds: "
+        f"baseline_lc vs reward_modulated_lc (+ rotation-off reference)",
         "lc_accuracy_curve.png",
+        noshuffle_labels=("baseline_lc_noshuffle", "rm_lc_noshuffle"),
     )
 
 
